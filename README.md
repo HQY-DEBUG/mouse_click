@@ -57,4 +57,6 @@ powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 
 ## 开发记录
 
+程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](assets/icons/SOURCE.md)。
+
 按小阶段验证、commit 并 push。详见 [设计](docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。

@@ -6,11 +6,15 @@
     <AssemblyName>钰宇鼠标连点器</AssemblyName>
     <RootNamespace>MouseClick.App</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>../../assets/icons/mouse.ico</ApplicationIcon>
     <Version>1.1.0</Version>
     <Product>钰宇鼠标连点器</Product>
     <Description>支持屏幕点选和多位置顺序循环的鼠标连点器</Description>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../assets/icons/mouse.ico" LogicalName="MouseClick.AppIcon.ico" />
+    <Content Include="../../assets/icons/LICENSE.CC0-1.0.txt" Link="图标许可.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="../../assets/icons/SOURCE.md" Link="图标来源.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <InternalsVisibleTo Include="MouseClick.WindowsTests" />
     <ProjectReference Include="../MouseClick.Core/MouseClick.Core.csproj" />
   </ItemGroup>

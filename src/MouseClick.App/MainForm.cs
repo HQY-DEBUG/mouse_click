@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.2
+// 版本：v1.3
 // 日期：2026/11/15
 // 历史：
+// v1.3 2026/11/15 嵌入用户选定的蓝紫双色指针图标。
 // v1.2 2026/11/15 分离配置及输入依赖，允许真实窗口验收使用独立配置。
 // v1.1 2026/11/15 固定 Ctrl+F8 停止提示，并将软件名称改为钰宇鼠标连点器。
-// v1.0 2026/11/15 新增设置、多点循环、点选和快捷键控制。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -60,6 +60,14 @@ public sealed class MainForm : Form
     {
         _store = store;
         _engine = new ClickEngine(output);
+        // 2026/11/15 新增：窗口及任务栏使用嵌入式图标，释放窗体时一并释放图标副本。
+        using (Stream iconStream = typeof(MainForm).Assembly.GetManifestResourceStream("MouseClick.AppIcon.ico")!)
+        using (var sourceIcon = new Icon(iconStream))
+        {
+            var windowIcon = (Icon)sourceIcon.Clone();
+            Icon = windowIcon;
+            Disposed += (_, _) => windowIcon.Dispose();
+        }
         // 2026/11/15 修改：窗口标题采用用户指定的软件名称，保留既有设置保存位置。
         Text = "钰宇鼠标连点器";
         Name = "MouseClickMainForm";

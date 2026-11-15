@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+artifacts/
+.vs/
+.codex/
+.superpowers/
+*.user
+*.suo
+.env
+credentials.json
+secrets.*

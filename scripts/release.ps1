@@ -1,14 +1,21 @@
 ﻿# 文件：release.ps1
 # 描述：从干净提交生成安装版、便携版与校验清单，不覆盖既有发行文件。
-# 版本：v1.0
+# 版本：v1.1
 # 日期：2026/11/15
-# 历史：v1.0 2026/11/15 建立可追溯的双版本发行构建。
+# 历史：v1.1 2026/11/15 按 PE 数字版本校验，避免安装器版本文本填充导致误报。
+# v1.0 2026/11/15 建立可追溯的双版本发行构建。
 param(
     [Parameter(Mandatory = $true)][string]$IsccPath,
     [string]$OutputRoot
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# 2026/11/15 新增：Inno 的版本文本带填充空格，读取 PE 四段数字字段进行精确校验。
+function Get-NumericFileVersion([string]$Path) {
+    $info = (Get-Item -LiteralPath $Path).VersionInfo
+    return '{0}.{1}.{2}.{3}' -f $info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart
+}
 
 # 2026/11/15 新增：版本只从 MSBuild 共用文件读取，并校验发行所需文档和工具。
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -43,7 +50,7 @@ try {
     # 2026/11/15 新增：同一份已发布 EXE 进入两个包，避免构建内容漂移。
     & (Join-Path $PSScriptRoot 'publish.ps1') -OutputDirectory $payload -SourceRevisionId $commit
     $executable = Join-Path $payload '钰宇鼠标连点器.exe'
-    $fileVersion = (Get-Item -LiteralPath $executable).VersionInfo.FileVersion
+    $fileVersion = Get-NumericFileVersion $executable
     if ($fileVersion -ne "$version.0") { throw "程序文件版本与发行版本不一致：$fileVersion" }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $payload '使用说明.md')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') -Destination (Join-Path $payload '更新日志.md')
@@ -59,7 +66,7 @@ try {
     $zipPath = Join-Path $releaseDir "YuyuMouseClick-v$version-win-x64-portable.zip"
     Compress-Archive -LiteralPath $portable -DestinationPath $zipPath -CompressionLevel Optimal
     $setupPath = Join-Path $releaseDir "YuyuMouseClick-v$version-win-x64-setup.exe"
-    if ((Get-Item -LiteralPath $setupPath).VersionInfo.FileVersion -ne "$version.0") {
+    if ((Get-NumericFileVersion $setupPath) -ne "$version.0") {
         throw '安装包文件版本与发行版本不一致。'
     }
 

@@ -1,8 +1,9 @@
 // 文件：TestWindow.cs
 // 描述：显示专用大目标并记录真实 Win32 鼠标消息及其物理屏幕落点。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
 // 历史：
+// v1.1 2026/11/15 同步钰宇鼠标连点器名称。
 // v1.0 2026/11/15 新增置顶验收窗口、三个目标与原生消息记录。
 
 using MouseClick.Core;
@@ -30,7 +31,7 @@ internal sealed class TestWindow : Form
         if (desktop.Width < 640 || desktop.Height < 360)
             throw new InvalidOperationException("主显示器可用区域过小，无法隔离三个测试目标。");
 
-        Text = "HQY 鼠标连点器 · 专用输入验收（最长 10 秒）";
+        Text = "钰宇鼠标连点器 · 专用输入验收";
         TopMost = true;
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.Manual;

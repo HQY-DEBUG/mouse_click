@@ -1,8 +1,9 @@
 // 文件：Program.cs
 // 描述：执行有显式桌面开关的 Windows 原生鼠标与热键集成验收。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
 // 历史：
+// v1.1 2026/11/15 新增真实桌面窗口诊断与固定停止组合键验收。
 // v1.0 2026/11/15 新增输入边界、真实多点与按键消息、热键冲突和资源释放测试。
 
 using System.ComponentModel;
@@ -61,7 +62,7 @@ internal static class Program
         ExpectOutOfRange(() => output.Click(MouseButton.Left, (ClickKind)999, null), "非法点击类型");
     }
 
-    // 2026/11/15 新增：所有桌面步骤共享 10 秒取消期限，finally 关闭专用窗口并恢复运行前的光标位置。
+    // 2026/11/15 修改：等待窗口就绪最多 30 秒，输入阶段另限 20 秒，结束关闭窗口并恢复光标。
     private static int RunDesktopTests()
     {
         if (!NativeMethods.GetCursorPos(out NativeMethods.NativePoint originalCursor))
@@ -73,7 +74,7 @@ internal static class Program
         int result = 1;
         TestWindow? window = null;
         bool finished = false;
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
             window = new TestWindow();
@@ -91,7 +92,17 @@ internal static class Program
                 try
                 {
                     testWindow.Activate();
-                    await Task.Delay(150, cancellation.Token);
+                    testWindow.BringToFront();
+                    await WaitForDesktopReadyAsync(testWindow, cancellation.Token);
+                    // 2026/11/15 新增：窗口就绪后单独计时，避免等待无遮挡耗尽输入验证期限。
+                    cancellation.CancelAfter(TimeSpan.FromSeconds(20));
+                    // 2026/11/15 新增：先观察实际窗口状态，再判断上次坐标命中失败的原因。
+                    NativeMethods.GetWindowRect(testWindow.Handle, out var actualBounds);
+                    Console.WriteLine($"桌面诊断：窗口={testWindow.Handle}，可见={NativeMethods.IsWindowVisible(testWindow.Handle)}，" +
+                        $"前台={NativeMethods.GetForegroundWindow()}，托管矩形={testWindow.Bounds}，原生矩形={actualBounds}。");
+                    foreach (var target in testWindow.SnapshotTargets())
+                        Console.WriteLine($"目标 {target.Id}：窗口={target.Handle}，可见={NativeMethods.IsWindowVisible(target.Handle)}，" +
+                            $"矩形={target.ScreenBounds}，命中={NativeMethods.WindowFromPoint(new NativeMethods.NativePoint { X = target.Center.X, Y = target.Center.Y })}。");
                     await CheckDesktopInputsAsync(testWindow, cancellation.Token);
                     cancellation.Token.ThrowIfCancellationRequested();
                     CheckHotkeyConflictAndRelease();
@@ -131,6 +142,20 @@ internal static class Program
         return result;
     }
 
+    // 2026/11/15 新增：等待实际窗口命中稳定后再点击，不用固定延时假设窗口已在前台。
+    private static async Task WaitForDesktopReadyAsync(TestWindow window, CancellationToken token)
+    {
+        int stableSamples = 0;
+        while (stableSamples < 3)
+        {
+            token.ThrowIfCancellationRequested();
+            bool ready = window.SnapshotTargets().All(target =>
+                NativeMethods.WindowFromPoint(new NativeMethods.NativePoint { X = target.Center.X, Y = target.Center.Y }) == target.Handle);
+            stableSamples = ready ? stableSamples + 1 : 0;
+            await Task.Delay(50, token);
+        }
+    }
+
     // 2026/11/15 新增：真实执行器和原生输出组成完整链路，窗口收到的消息独立验证顺序、按键与精确落点。
     private static async Task CheckDesktopInputsAsync(TestWindow window, CancellationToken token)
     {
@@ -148,7 +173,10 @@ internal static class Program
         }, token);
         await WaitForMessagesAsync(window, start + 12, token);
         int[] expectedTargets = [1, 2, 3, 1, 2, 3];
-        Check(window.Messages.Count == start + 12, "三点两轮应只收到 12 条按钮消息。");
+        Console.WriteLine("真实点击序列：" + string.Join(" | ", window.Messages.Skip(start).Select(message => $"{message.Target}:{message.Button}/{message.Phase}@{message.ScreenPoint}")));
+        Check(window.Messages.Count == start + 12,
+            $"三点两轮应只收到 12 条按钮消息，实际 {window.Messages.Count - start}。" +
+            string.Join(" | ", window.Messages.Skip(start).Select(message => $"{message.Target}:{message.Button}/{message.Phase}@{message.ScreenPoint}")));
         for (int action = 0; action < expectedTargets.Length; action++)
         {
             TestTarget target = targets[expectedTargets[action] - 1];
@@ -205,7 +233,7 @@ internal static class Program
             AssertMessage(window.Messages[start + index], target.Id, button, phases[index], target.Center);
     }
 
-    // 2026/11/15 新增：消息泵保持可响应；局部等待限制 1 秒，总执行另受 10 秒取消期限约束。
+    // 2026/11/15 修改：消息泵保持可响应；局部等待限制 1 秒，总执行受输入阶段期限约束。
     private static async Task WaitForMessagesAsync(TestWindow window, int expectedCount, CancellationToken token)
     {
         var elapsed = Stopwatch.StartNew();
@@ -229,7 +257,7 @@ internal static class Program
         {
             if (initialError.Contains("占用", StringComparison.Ordinal))
             {
-                Console.WriteLine("跳过：无法隔离热键注册测试，F6、F7 或 F8 已被外部程序占用；未注销外部注册。 " +
+                Console.WriteLine("跳过：无法隔离热键注册测试，F6、F7 或 Ctrl+F8 已被外部程序占用；未注销外部注册。 " +
                     initialError.Replace(Environment.NewLine, " ", StringComparison.Ordinal));
                 return;
             }
@@ -239,9 +267,8 @@ internal static class Program
         string? conflict = second.Register();
         Check(conflict is not null && conflict.Contains("占用", StringComparison.Ordinal), "重复注册应明确报告热键冲突。");
         Check(!second.CanToggle && !second.CanCapture, "冲突实例不得声称拥有被占用的启停或取点热键。");
-        // 2026/11/15 新增：第二个实例可使用独立备用停止键，但不能声称复用第一个实例的按键。
-        if (second.CanStop)
-            Check(first.StopHotkeyText == "F8" && second.StopHotkeyText == "Ctrl+Alt+F8", "停止键冲突时应明确使用独立备用组合。");
+        // 2026/11/15 修改：停止键固定为 Ctrl+F8，冲突实例不能自动改用其他按键。
+        Check(!second.CanStop, "停止键被占用时不得声称注册成功或自动替换按键。");
         first.Dispose();
         string? afterDispose = second.Register();
         Check(afterDispose is null && second.CanToggle && second.CanStop && second.CanCapture,

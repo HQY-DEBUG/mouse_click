@@ -7,7 +7,7 @@
     <RootNamespace>MouseClick.App</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>../../assets/icons/mouse.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
+    <!-- 2026/11/15 修改：版本由 Directory.Build.props 导入 version.props，调用方发布脚本使用同一值。 -->
     <Product>钰宇鼠标连点器</Product>
     <Description>支持屏幕点选和多位置顺序循环的鼠标连点器</Description>
   </PropertyGroup>

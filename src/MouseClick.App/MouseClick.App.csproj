@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>HQY.MouseClick</AssemblyName>
+    <RootNamespace>MouseClick.App</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>1.0.0</Version>
+    <Product>HQY 鼠标连点器</Product>
+    <Description>支持屏幕点选和多位置顺序循环的鼠标连点器</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MouseClick.Core/MouseClick.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,8 +1,9 @@
 // 文件：HotkeyWindow.cs
 // 描述：使用消息窗口注册全局启停、紧急停止和取点快捷键。
-// 版本：v1.1
+// 版本：v1.2
 // 日期：2026/11/15
 // 历史：
+// v1.2 2026/11/15 固定 Ctrl+F8 紧急停止，移除自动换键并拒绝旧组合消息。
 // v1.1 2026/11/15 新增停止键占用时的组合键回退，并校验消息中的组合键。
 // v1.0 2026/11/15 新增快捷键注册、冲突报告、消息分发和关闭注销。
 
@@ -21,12 +22,11 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     private const int StopId = 2;
     private const int CaptureId = 3;
     private const uint NoRepeat = 0x4000;
-    // 2026/11/15 新增：F8 被占用时使用 Ctrl+Alt+F8，并保存当前停止键的修饰键。
-    private const uint StopFallbackModifiers = 0x0003;
+    // 2026/11/15 修改：紧急停止固定使用 Ctrl，不再根据快捷键占用情况自动换键。
+    private const uint StopModifiers = 0x0002;
     private const int HotkeyAlreadyRegistered = 1409;
     private readonly Dictionary<int, string> _registered = new();
     private int _toggleVirtualKey = 0x75;
-    private uint _stopModifiers;
     private bool _disposed;
 
     public event Action? ToggleRequested;
@@ -37,8 +37,8 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     public bool CanStop { get; private set; }
     public bool CanCapture { get; private set; }
 
-    // 2026/11/15 新增：供主界面显示实际注册成功的停止快捷键。
-    public string StopHotkeyText { get; private set; } = "F8";
+    // 2026/11/15 修改：注册成功或失败时均显示固定的 Ctrl+F8，主界面无需推测备用组合。
+    public string StopHotkeyText => "Ctrl+F8";
 
     // 2026/11/15 新增：HWND_MESSAGE 创建不显示、不抢焦点的专用消息窗口。
     public HotkeyWindow()
@@ -50,7 +50,7 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         });
     }
 
-    // 2026/11/15 修改：先注销旧注册，停止键使用备用组合键回退，其余失败项目保留独立诊断。
+    // 2026/11/15 修改：先注销旧注册，再注册固定 Ctrl+F8；失败时保留独立诊断并禁止启动。
     public string? Register(int toggleVirtualKey = 0x75)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -68,35 +68,17 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
 
         string toggleName = toggleVirtualKey switch { 0x75 => "F6", 0x78 => "F9", _ => "F10" };
         _toggleVirtualKey = toggleVirtualKey;
-        CanStop = RegisterStop(failures);
+        CanStop = TryRegister(StopId, 0x77, "Ctrl+F8（紧急停止）", failures, StopModifiers);
         CanCapture = TryRegister(CaptureId, 0x76, "F7（获取鼠标位置）", failures);
         CanToggle = TryRegister(ToggleId, toggleVirtualKey, $"{toggleName}（开始/停止）", failures);
         return failures.Count == 0 ? null : string.Join(Environment.NewLine, failures);
     }
 
-    // 2026/11/15 新增：只有主键与备用键均失败才报告停止键不可用，备用键成功时不保留主键占用错误。
-    private bool RegisterStop(List<string> failures)
-    {
-        StopHotkeyText = "F8";
-        _stopModifiers = 0;
-        List<string> stopFailures = new();
-        if (TryRegister(StopId, 0x77, "F8（紧急停止）", stopFailures))
-        {
-            return true;
-        }
+    // [废弃] 2026/11/15 用户指定固定 Ctrl+F8，替代旧 F8 及 Ctrl+Alt+F8 回退，计划在 v1.5 清理。
+    // TryRegister(StopId, 0x77, "F8（紧急停止）", stopFailures);
+    // TryRegister(StopId, 0x77, "Ctrl+Alt+F8（紧急停止）", stopFailures, 0x0003);
 
-        if (TryRegister(StopId, 0x77, "Ctrl+Alt+F8（紧急停止）", stopFailures, StopFallbackModifiers))
-        {
-            StopHotkeyText = "Ctrl+Alt+F8";
-            _stopModifiers = StopFallbackModifiers;
-            return true;
-        }
-
-        failures.AddRange(stopFailures);
-        return false;
-    }
-
-    // 2026/11/15 修改：支持组合键修饰符，所有快捷键仍启用 NoRepeat 并明确报告注册失败。
+    // 2026/11/15 修改：保留 NoRepeat，固定停止键占用时明确提示禁止启动且不会自动换键。
     private bool TryRegister(int id, int virtualKey, string name, List<string> failures, uint modifiers = 0)
     {
         if (RegisterHotKey(Handle, id, NoRepeat | modifiers, (uint)virtualKey))
@@ -107,12 +89,14 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
 
         int error = Marshal.GetLastPInvokeError();
         failures.Add(error == HotkeyAlreadyRegistered
-            ? $"{name} 已被其他程序占用，请释放该快捷键或更换开始/停止键。"
+            ? id == StopId
+                ? $"{name} 已被其他程序占用，已禁止启动；请释放后重新选择开始/停止快捷键重试。不会自动更换停止键。"
+                : $"{name} 已被其他程序占用，请释放该快捷键或更换开始/停止键。"
             : $"{name} 注册失败：Windows 错误 {error}（{new Win32Exception(error).Message}）。");
         return false;
     }
 
-    // 2026/11/15 修改：同时校验虚拟键及组合键，避免切换到备用停止键后分发旧队列消息。
+    // 2026/11/15 修改：停止消息仅接受 Ctrl+F8，拒绝无修饰 F8、Ctrl+Alt+F8 及其他组合。
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == HotkeyMessage && !_disposed)
@@ -124,7 +108,7 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
                 case ToggleId when CanToggle && virtualKey == _toggleVirtualKey && modifiers == 0:
                     ToggleRequested?.Invoke();
                     return;
-                case StopId when CanStop && virtualKey == 0x77 && modifiers == _stopModifiers:
+                case StopId when CanStop && virtualKey == 0x77 && modifiers == StopModifiers:
                     StopRequested?.Invoke();
                     return;
                 case CaptureId when CanCapture && virtualKey == 0x76 && modifiers == 0:

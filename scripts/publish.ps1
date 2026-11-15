@@ -1,8 +1,9 @@
 ﻿# 文件：publish.ps1
 # 描述：发布不依赖已安装 .NET 的 Windows x64 单文件程序。
-# 版本：v1.0
+# 版本：v1.1
 # 日期：2026/11/15
-# 历史：v1.0 2026/11/15 新增自包含发布入口。
+# 历史：v1.1 2026/11/15 同步钰宇鼠标连点器发布名称。
+# v1.0 2026/11/15 新增自包含发布入口。
 $ErrorActionPreference = 'Stop'
 
 # 2026/11/15 新增：发布产物集中存放，避免把二进制或中间文件加入源码提交。
@@ -15,7 +16,8 @@ try {
         -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false `
         -o $publishDir
     if ($LASTEXITCODE -ne 0) { throw '发布失败。' }
-    Write-Host (Join-Path $publishDir 'HQY.MouseClick.exe')
+    # 2026/11/15 修改：发布结果采用用户指定的软件名称。
+    Write-Host (Join-Path $publishDir '钰宇鼠标连点器.exe')
 }
 finally {
     Pop-Location

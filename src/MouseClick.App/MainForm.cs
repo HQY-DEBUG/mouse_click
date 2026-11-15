@@ -1,8 +1,10 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增设置、多点循环、点选和快捷键控制。
+// 历史：
+// v1.1 2026/11/15 固定 Ctrl+F8 停止提示，并将软件名称改为钰宇鼠标连点器。
+// v1.0 2026/11/15 新增设置、多点循环、点选和快捷键控制。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -24,9 +26,10 @@ public sealed class MainForm : Form
     private readonly Label _counts = Ui.Text("0 次动作  /  0 轮", 17, true);
     private readonly Label _pointHint = Ui.Text("");
     private readonly Label _modeHint = Ui.Text("");
-    private readonly Label _emergencyHint = Ui.Text("F8 紧急停止  ·  0 轮表示持续点击  ·  多位置全部走完计一轮", 9);
+    // 2026/11/15 修改：界面初始提示和停止按钮统一显示固定 Ctrl+F8。
+    private readonly Label _emergencyHint = Ui.Text("Ctrl+F8 紧急停止  ·  0 轮表示持续点击  ·  多位置全部走完计一轮", 9);
     private readonly Button _start = Ui.Button("开始连点 · F6", true);
-    private readonly Button _stop = Ui.Button("停止 · F8");
+    private readonly Button _stop = Ui.Button("停止 · Ctrl+F8");
     private readonly Button _capture = Ui.Button("屏幕点选 · F7", true);
     private readonly Button _add = Ui.Button("添加坐标");
     private readonly Button _remove = Ui.Button("移除");
@@ -48,7 +51,8 @@ public sealed class MainForm : Form
     // 2026/11/15 新增：构建窗口后恢复设置，热键消息窗口与主窗口焦点无关。
     public MainForm()
     {
-        Text = "HQY 鼠标连点器";
+        // 2026/11/15 修改：窗口标题采用用户指定的软件名称，保留既有设置保存位置。
+        Text = "钰宇鼠标连点器";
         Name = "MouseClickMainForm";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(960, 760);
@@ -78,7 +82,8 @@ public sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
         Controls.Add(root);
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        header.Controls.Add(Ui.Text("HQY  鼠标连点器", 25, true));
+        // 2026/11/15 修改：界面大标题与窗口标题统一使用钰宇鼠标连点器。
+        header.Controls.Add(Ui.Text("钰宇鼠标连点器", 25, true));
         var subtitle = Ui.Text("设置节奏，点选位置，让重复点击自动完成。", 10);
         subtitle.ForeColor = Ui.Muted;
         header.Controls.Add(subtitle);
@@ -257,7 +262,8 @@ public sealed class MainForm : Form
     {
         if (_cancellation is not null) { StopRun(); return; }
         if (_picker is not null) return;
-        if (!_hotkeys.CanStop) { ShowStatus("紧急停止键不可用，请释放 F8 或 Ctrl+Alt+F8 后重新选择快捷键。", true); return; }
+        // 2026/11/15 修改：固定 Ctrl+F8 不可用时禁止启动，提示释放后重试且不再建议备用组合。
+        if (!_hotkeys.CanStop) { ShowStatus("Ctrl+F8 紧急停止键不可用，请释放后重新选择开始/停止快捷键重试；不会自动更换停止键。", true); return; }
         ClickSettings settings;
         try
         {

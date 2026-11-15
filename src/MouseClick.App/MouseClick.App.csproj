@@ -3,11 +3,11 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>HQY.MouseClick</AssemblyName>
+    <AssemblyName>钰宇鼠标连点器</AssemblyName>
     <RootNamespace>MouseClick.App</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.0.0</Version>
-    <Product>HQY 鼠标连点器</Product>
+    <Version>1.1.0</Version>
+    <Product>钰宇鼠标连点器</Product>
     <Description>支持屏幕点选和多位置顺序循环的鼠标连点器</Description>
   </PropertyGroup>
   <ItemGroup>

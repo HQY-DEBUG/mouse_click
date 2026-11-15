@@ -1,6 +1,19 @@
 # 钰宇鼠标连点器
 
-Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms，无第三方运行依赖。
+Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 Windows 10/11 x64，发行包自带 .NET 运行时，无需另外安装 .NET。
+
+## 下载
+
+当前正式版本：**v1.2.0**。请从 [GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.2.0) 下载：
+
+| 发行文件 | 用途 |
+| --- | --- |
+| [YuyuMouseClick-v1.2.0-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.2.0/YuyuMouseClick-v1.2.0-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
+| [YuyuMouseClick-v1.2.0-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.2.0/YuyuMouseClick-v1.2.0-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
+| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.2.0/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
+| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.2.0/release-manifest.json) | 版本、源码提交及发行产物信息 |
+
+发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示；请核对下载来源及校验值。详见 [v1.2.0 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/docs/releases/v1.2.0.md) 和 [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/CHANGELOG.md)。
 
 ## 功能
 
@@ -9,13 +22,15 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms，无第�
 - 跟随鼠标、固定坐标、多坐标顺序循环。
 - 在屏幕上点击选取坐标，添加任意数量的位置，调整顺序或移除。
 - 全局快捷键启停、紧急停止、运行计数、自动保存设置。
-- 提供 Windows x64 免安装 EXE。
+- 提供 Windows x64 安装版和便携版。
 
 多位置模式按列表顺序点击，完成整个列表计为一轮；双击计为一次动作。
 
 ## 使用
 
-双击本机发布产物 `artifacts/windows-x64/钰宇鼠标连点器.exe`，不需要另外安装 .NET。
+安装版运行 `YuyuMouseClick-v1.2.0-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
+
+便携版先完整解压 ZIP，再双击其中的 `钰宇鼠标连点器.exe`；请保留同目录的 `portable.flag`，不要直接从 ZIP 预览中启动。
 
 1. 设置按键、单击/双击、点击间隔和启动延时，时间单位均为毫秒。
 2. 选择点击位置模式。多位置模式点击“屏幕点选”，在目标位置依次左键点击；右键或 Esc 完成选择。
@@ -34,11 +49,11 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms，无第�
 
 快捷键冲突会显示原因；Ctrl+F8 不可用时禁止启动，释放后重新选择开始/停止快捷键以重试注册。点击间隔范围 1～86400000 毫秒，实际节奏受 Windows 调度影响，不承诺 1 毫秒精度。
 
-设置保存在 `%LOCALAPPDATA%\HQY.MouseClick\settings.json`，不会覆盖鼠大侠或其他连点器配置。损坏配置读取时会提示；再次保存前自动保留 `.invalid-*.bak` 备份。
+安装版设置保存在 `%LOCALAPPDATA%\HQY.MouseClick\settings.json`，卸载保留此配置。便携版通过 EXE 同目录的 `portable.flag` 启用，设置保存在同目录下的 `data\settings.json`；移动便携版时请连同 `data` 目录一起移动。两种模式使用各自的配置，不会自动迁移或共享，也不会覆盖鼠大侠或其他连点器配置。损坏配置读取时会提示；再次保存前自动保留 `.invalid-*.bak` 备份。
 
 ## 构建与验证
 
-环境：Windows 10/11 x64，.NET 10 SDK（`global.json` 固定基线 10.0.204，允许同主版本更新功能带）。
+环境：Windows 10/11 x64，.NET 10 SDK（`global.json` 固定基线 10.0.204，允许同主版本更新功能带）。完整发行打包还需要 Inno Setup 6.7.4。版本统一由根目录 `version.props` 中的 `Version` 管理。
 
 ```powershell
 # 编译、核心测试、点选回归和输入边界测试；不产生桌面点击
@@ -47,18 +62,21 @@ powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
 # 在专用窗口验证真实点击和 F6/Ctrl+F8；请暂时不要操作鼠标键盘或切换窗口
 powershell -ExecutionPolicy Bypass -File scripts/verify.ps1 -Desktop
 
-# 生成免安装自包含单文件 EXE
+# 生成自包含单文件 EXE，输出 artifacts/windows-x64
 powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
+
+# 生成正式安装版、便携 ZIP、校验文件及源码版本清单
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，产物统一放在被 Git 忽略的 `artifacts`。源码仓库不包含大型 .NET 自包含二进制，执行发布脚本即可生成。
+源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.2.0/`；同版本输出目录已存在时拒绝覆盖，可用 `-OutputRoot` 指定其他输出根目录。源码仓库不包含大型 .NET 自包含二进制；下载成品请使用上方 Release 入口。完整发布步骤见 [发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/docs/releasing.md)。
 
-2026/11/15 已通过 19 项核心行为、4 项点选回归，以及真实桌面多位置循环、三键单双击、主窗口全局 F6 启动和 Ctrl+F8 停止测试。完整证据见 [验证记录](docs/validation-2026-11-15.md)。桌面测试使用独立临时配置，不覆盖用户设置。
+此前开发版本在 2026/11/15 通过了 19 项核心行为、4 项点选回归，以及真实桌面多位置循环、三键单双击、主窗口全局 F6 启动和 Ctrl+F8 停止测试。完整证据及覆盖范围见 [验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/docs/validation-2026-11-15.md)；该记录不代替 v1.2.0 发行包的安装、卸载和便携模式验收。桌面测试使用独立临时配置，不覆盖用户设置。
 
 目标程序若以管理员身份运行，连点器可能也需要相同权限；是否接收模拟输入由目标程序决定。本工具提供桌面前台点击，不提供后台点击或操作录制。Windows 输入与热键实现参考微软 [SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput) 和 [RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)。
 
 ## 开发记录
 
-程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](assets/icons/SOURCE.md)。
+程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/assets/icons/SOURCE.md)。
 
-按小阶段验证、commit 并 push。详见 [设计](docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。
+按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.2.0/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。

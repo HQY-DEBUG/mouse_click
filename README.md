@@ -44,7 +44,7 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms，无第�
 # 编译、核心测试、点选回归和输入边界测试；不产生桌面点击
 powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
 
-# 在专用测试窗口验证真实点击；约数秒，请暂时不要移动鼠标
+# 在专用窗口验证真实点击和 F6/Ctrl+F8；请暂时不要操作鼠标键盘或切换窗口
 powershell -ExecutionPolicy Bypass -File scripts/verify.ps1 -Desktop
 
 # 生成免安装自包含单文件 EXE
@@ -52,6 +52,8 @@ powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 ```
 
 源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，产物统一放在被 Git 忽略的 `artifacts`。源码仓库不包含大型 .NET 自包含二进制，执行发布脚本即可生成。
+
+2026/11/15 已通过 19 项核心行为、4 项点选回归，以及真实桌面多位置循环、三键单双击、主窗口全局 F6 启动和 Ctrl+F8 停止测试。完整证据见 [验证记录](docs/validation-2026-11-15.md)。桌面测试使用独立临时配置，不覆盖用户设置。
 
 目标程序若以管理员身份运行，连点器可能也需要相同权限；是否接收模拟输入由目标程序决定。本工具提供桌面前台点击，不提供后台点击或操作录制。Windows 输入与热键实现参考微软 [SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput) 和 [RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)。
 

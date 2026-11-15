@@ -1,8 +1,9 @@
 // 文件：HotkeyWindow.cs
 // 描述：使用消息窗口注册全局启停、紧急停止和取点快捷键。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
 // 历史：
+// v1.1 2026/11/15 新增停止键占用时的组合键回退，并校验消息中的组合键。
 // v1.0 2026/11/15 新增快捷键注册、冲突报告、消息分发和关闭注销。
 
 using System.ComponentModel;
@@ -20,9 +21,12 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     private const int StopId = 2;
     private const int CaptureId = 3;
     private const uint NoRepeat = 0x4000;
+    // 2026/11/15 新增：F8 被占用时使用 Ctrl+Alt+F8，并保存当前停止键的修饰键。
+    private const uint StopFallbackModifiers = 0x0003;
     private const int HotkeyAlreadyRegistered = 1409;
     private readonly Dictionary<int, string> _registered = new();
     private int _toggleVirtualKey = 0x75;
+    private uint _stopModifiers;
     private bool _disposed;
 
     public event Action? ToggleRequested;
@@ -32,6 +36,9 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     public bool CanToggle { get; private set; }
     public bool CanStop { get; private set; }
     public bool CanCapture { get; private set; }
+
+    // 2026/11/15 新增：供主界面显示实际注册成功的停止快捷键。
+    public string StopHotkeyText { get; private set; } = "F8";
 
     // 2026/11/15 新增：HWND_MESSAGE 创建不显示、不抢焦点的专用消息窗口。
     public HotkeyWindow()
@@ -43,7 +50,7 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         });
     }
 
-    // 2026/11/15 新增：先注销旧注册，再逐项注册；失败的项目禁用并返回中文诊断，成功项目可继续使用。
+    // 2026/11/15 修改：先注销旧注册，停止键使用备用组合键回退，其余失败项目保留独立诊断。
     public string? Register(int toggleVirtualKey = 0x75)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -61,16 +68,38 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
 
         string toggleName = toggleVirtualKey switch { 0x75 => "F6", 0x78 => "F9", _ => "F10" };
         _toggleVirtualKey = toggleVirtualKey;
-        CanStop = TryRegister(StopId, 0x77, "F8（紧急停止）", failures);
+        CanStop = RegisterStop(failures);
         CanCapture = TryRegister(CaptureId, 0x76, "F7（获取鼠标位置）", failures);
         CanToggle = TryRegister(ToggleId, toggleVirtualKey, $"{toggleName}（开始/停止）", failures);
         return failures.Count == 0 ? null : string.Join(Environment.NewLine, failures);
     }
 
-    // 2026/11/15 新增：阻止长按自动重复触发，并区分快捷键占用与其他 Windows 注册错误。
-    private bool TryRegister(int id, int virtualKey, string name, List<string> failures)
+    // 2026/11/15 新增：只有主键与备用键均失败才报告停止键不可用，备用键成功时不保留主键占用错误。
+    private bool RegisterStop(List<string> failures)
     {
-        if (RegisterHotKey(Handle, id, NoRepeat, (uint)virtualKey))
+        StopHotkeyText = "F8";
+        _stopModifiers = 0;
+        List<string> stopFailures = new();
+        if (TryRegister(StopId, 0x77, "F8（紧急停止）", stopFailures))
+        {
+            return true;
+        }
+
+        if (TryRegister(StopId, 0x77, "Ctrl+Alt+F8（紧急停止）", stopFailures, StopFallbackModifiers))
+        {
+            StopHotkeyText = "Ctrl+Alt+F8";
+            _stopModifiers = StopFallbackModifiers;
+            return true;
+        }
+
+        failures.AddRange(stopFailures);
+        return false;
+    }
+
+    // 2026/11/15 修改：支持组合键修饰符，所有快捷键仍启用 NoRepeat 并明确报告注册失败。
+    private bool TryRegister(int id, int virtualKey, string name, List<string> failures, uint modifiers = 0)
+    {
+        if (RegisterHotKey(Handle, id, NoRepeat | modifiers, (uint)virtualKey))
         {
             _registered.Add(id, name);
             return true;
@@ -83,21 +112,22 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         return false;
     }
 
-    // 2026/11/15 新增：仅分发当前有效注册；切换注册期间或关闭时不处理残留的快捷键消息。
+    // 2026/11/15 修改：同时校验虚拟键及组合键，避免切换到备用停止键后分发旧队列消息。
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == HotkeyMessage && !_disposed)
         {
             int virtualKey = (int)((message.LParam.ToInt64() >> 16) & 0xFFFF);
+            uint modifiers = (uint)(message.LParam.ToInt64() & 0x000F);
             switch (message.WParam.ToInt32())
             {
-                case ToggleId when CanToggle && virtualKey == _toggleVirtualKey:
+                case ToggleId when CanToggle && virtualKey == _toggleVirtualKey && modifiers == 0:
                     ToggleRequested?.Invoke();
                     return;
-                case StopId when CanStop && virtualKey == 0x77:
+                case StopId when CanStop && virtualKey == 0x77 && modifiers == _stopModifiers:
                     StopRequested?.Invoke();
                     return;
-                case CaptureId when CanCapture && virtualKey == 0x76:
+                case CaptureId when CanCapture && virtualKey == 0x76 && modifiers == 0:
                     CaptureRequested?.Invoke();
                     return;
             }

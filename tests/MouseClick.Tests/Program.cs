@@ -35,7 +35,8 @@ internal static class Program
             ("开始后坐标列表修改不影响本次顺序", SnapshotPointList),
             ("点间及轮间等待且最后一个动作无需等待", IntervalBetweenActionsOnly),
             ("参数边界可运行并拒绝非法设置", ValidateSettingBoundaries),
-            ("空设置与空输出被明确拒绝", RejectNullInputs)
+            ("空设置与空输出被明确拒绝", RejectNullInputs),
+            .. StorageTests.All
         ];
         int failed = 0;
         foreach (var test in tests)

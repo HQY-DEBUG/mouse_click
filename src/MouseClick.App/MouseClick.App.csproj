@@ -11,6 +11,7 @@
     <Description>支持屏幕点选和多位置顺序循环的鼠标连点器</Description>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="MouseClick.WindowsTests" />
     <ProjectReference Include="../MouseClick.Core/MouseClick.Core.csproj" />
   </ItemGroup>
 </Project>

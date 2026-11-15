@@ -1,8 +1,9 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.1
+// 版本：v1.2
 // 日期：2026/11/15
 // 历史：
+// v1.2 2026/11/15 分离配置及输入依赖，允许真实窗口验收使用独立配置。
 // v1.1 2026/11/15 固定 Ctrl+F8 停止提示，并将软件名称改为钰宇鼠标连点器。
 // v1.0 2026/11/15 新增设置、多点循环、点选和快捷键控制。
 using MouseClick.App.Interop;
@@ -37,10 +38,9 @@ public sealed class MainForm : Form
     private readonly Button _down = Ui.Button("下移");
     private readonly Panel _settingsPanel = new();
     private readonly Panel _positionsPanel = new();
-    private readonly ClickEngine _engine = new(new WindowsClickOutput());
+    private readonly ClickEngine _engine;
     private readonly HotkeyWindow _hotkeys = new();
-    private readonly SettingsStore _store = new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HQY.MouseClick", "settings.json"));
+    private readonly SettingsStore _store;
     private readonly System.Windows.Forms.Timer _refresh = new() { Interval = 100 };
     private CancellationTokenSource? _cancellation;
     private PointPickerForm? _picker;
@@ -48,9 +48,18 @@ public sealed class MainForm : Form
     private bool _closeAfterStop;
     private string? _loadWarning;
 
-    // 2026/11/15 新增：构建窗口后恢复设置，热键消息窗口与主窗口焦点无关。
-    public MainForm()
+    // 2026/11/15 修改：正常启动仍使用原配置目录和 Windows 输入；调用方 Program 无需变更。
+    public MainForm() : this(new SettingsStore(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HQY.MouseClick", "settings.json")),
+        new WindowsClickOutput())
     {
+    }
+
+    // 2026/11/15 新增：由构造方提供持久化与输入边界，使隔离验收运行同一套真实界面逻辑。
+    internal MainForm(SettingsStore store, IClickOutput output)
+    {
+        _store = store;
+        _engine = new ClickEngine(output);
         // 2026/11/15 修改：窗口标题采用用户指定的软件名称，保留既有设置保存位置。
         Text = "钰宇鼠标连点器";
         Name = "MouseClickMainForm";

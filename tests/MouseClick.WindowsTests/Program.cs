@@ -1,11 +1,11 @@
 // 文件：Program.cs
-// 描述：执行有显式桌面开关的 Windows 原生鼠标与热键集成验收。
-// 版本：v1.2
+// 描述：执行隐藏窗体回归及有显式桌面开关的 Windows 原生鼠标与热键集成验收。
+// 版本：v1.3
 // 日期：2026/11/15
 // 历史：
+// v1.3 2026/11/15 默认接入隐藏主窗体秒制小数设置回归。
 // v1.2 2026/11/15 接入真实主窗口与 Ctrl+F8 停止验收，热键冲突不再跳过。
 // v1.1 2026/11/15 新增真实桌面窗口诊断与固定停止组合键验收。
-// v1.0 2026/11/15 新增输入边界、真实多点与按键消息、热键冲突和资源释放测试。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -15,7 +15,7 @@ using MouseClick.Core;
 
 namespace MouseClick.WindowsTests;
 
-// 2026/11/15 新增：默认只检查拒绝非法输入；只有 --desktop 才创建测试窗口并发送鼠标事件。
+// 2026/11/15 修改：默认运行隐藏窗体与输入边界回归；只有 --desktop 才显示窗口并发送鼠标事件。
 internal static class Program
 {
     [STAThread]
@@ -34,6 +34,8 @@ internal static class Program
         int pickerFailures = PickerRegressionTests.Run();
         if (pickerFailures != 0) return 1;
         if (args is ["--picker-only"]) return 0;
+        // 2026/11/15 新增：秒制小数设置覆盖实际主窗体加载和关闭保存，不显示窗口或注册全局热键。
+        if (MainFormSettingsRegressionTests.Run() != 0) return 1;
         try
         {
             CheckRejectedInputs();

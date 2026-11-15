@@ -1,8 +1,9 @@
 // 文件：ClickSettings.cs
 // 说明：定义点击设置、坐标与参数校验。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增点击设置和输入边界。
+// 历史：v1.1 2026/11/15 校验提示采用秒，保持存储字段及数值边界不变。
+// v1.0 2026/11/15 新增点击设置和输入边界。
 
 namespace MouseClick.Core;
 
@@ -33,10 +34,11 @@ public sealed record ClickSettings
         if (!Enum.IsDefined(Button)) throw new ArgumentException("鼠标按键无效。", nameof(Button));
         if (!Enum.IsDefined(Kind)) throw new ArgumentException("点击类型无效。", nameof(Kind));
         if (!Enum.IsDefined(Mode)) throw new ArgumentException("目标模式无效。", nameof(Mode));
+        // 2026/11/15 修改：供界面显示的时间错误使用秒单位，内部调用契约仍为整数毫秒。
         if (IntervalMilliseconds is < 1 or > 86400000)
-            throw new ArgumentException("点击间隔必须为 1～86400000 毫秒。", nameof(IntervalMilliseconds));
+            throw new ArgumentException("点击间隔必须为 0.001～86400 s。", nameof(IntervalMilliseconds));
         if (StartDelayMilliseconds is < 0 or > 3600000)
-            throw new ArgumentException("启动延时必须为 0～3600000 毫秒。", nameof(StartDelayMilliseconds));
+            throw new ArgumentException("启动延时必须为 0～3600 s。", nameof(StartDelayMilliseconds));
         if (RepeatCount is < 0 or > 1000000)
             throw new ArgumentException("轮数必须为 0～1000000，0 表示持续运行。", nameof(RepeatCount));
         if (ToggleHotkey is not (0x75 or 0x78 or 0x79))

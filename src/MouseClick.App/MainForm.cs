@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.4
+// 版本：v1.5
 // 日期：2026/11/15
 // 历史：
+// v1.5 2026/11/15 时间输入及提示改为秒，保留毫秒配置兼容性。
 // v1.4 2026/11/15 正常启动按便携标记选择独立设置目录。
 // v1.3 2026/11/15 嵌入用户选定的蓝紫双色指针图标。
-// v1.2 2026/11/15 分离配置及输入依赖，允许真实窗口验收使用独立配置。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -17,8 +17,9 @@ public sealed class MainForm : Form
     private readonly ComboBox _kind = Ui.Choice("单击", "双击");
     private readonly ComboBox _mode = Ui.Choice("跟随鼠标当前位置", "固定一个位置", "多个位置顺序循环");
     private readonly ComboBox _shortcut = Ui.Choice("F6", "F9", "F10");
-    private readonly NumericUpDown _interval = Ui.Number(1, 86400000, 100, "IntervalInput");
-    private readonly NumericUpDown _delay = Ui.Number(0, 3600000, 1000, "DelayInput");
+    // 2026/11/15 修改：界面以秒输入，范围和默认实际时长与既有毫秒配置一致。
+    private readonly NumericUpDown _interval = Ui.Seconds(0.001m, 86400m, 0.1m, "IntervalInput");
+    private readonly NumericUpDown _delay = Ui.Seconds(0m, 3600m, 1m, "DelayInput");
     private readonly NumericUpDown _repeat = Ui.Number(0, 1000000, 0, "RepeatInput");
     private readonly NumericUpDown _x = Ui.Number(int.MinValue, int.MaxValue, 0, "XInput");
     private readonly NumericUpDown _y = Ui.Number(int.MinValue, int.MaxValue, 0, "YInput");
@@ -148,7 +149,7 @@ public sealed class MainForm : Form
         root.Controls.Add(footer, 0, 2);
     }
 
-    // 2026/11/15 新增：约束数值输入范围，明确毫秒单位与无限轮数含义。
+    // 2026/11/15 修改：时间标签及可访问名称统一标注 s，轮数仍为整数。
     private void BuildSettings()
     {
         var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
@@ -163,8 +164,8 @@ public sealed class MainForm : Form
         }
         Field("鼠标按键", _button, "ButtonChoice");
         Field("点击方式", _kind, "KindChoice");
-        Field("点击间隔（毫秒）", _interval, "IntervalInput");
-        Field("启动延时（毫秒）", _delay, "DelayInput");
+        Field("点击间隔（s）", _interval, "IntervalInput");
+        Field("启动延时（s）", _delay, "DelayInput");
         Field("重复轮数（0 = 持续）", _repeat, "RepeatInput");
         Field("全局开始 / 停止快捷键", _shortcut, "ShortcutChoice");
         _settingsPanel.Controls.Add(table);
@@ -252,8 +253,9 @@ public sealed class MainForm : Form
         _button.SelectedIndex = (int)settings.Button;
         _kind.SelectedIndex = (int)settings.Kind;
         _mode.SelectedIndex = (int)settings.Mode;
-        _interval.Value = settings.IntervalMilliseconds;
-        _delay.Value = settings.StartDelayMilliseconds;
+        // 2026/11/15 修改：旧配置仍为整数毫秒，除以 decimal 1000 保留原始时长及小数精度。
+        _interval.Value = settings.IntervalMilliseconds / 1000m;
+        _delay.Value = settings.StartDelayMilliseconds / 1000m;
         _repeat.Value = settings.RepeatCount;
         _x.Value = settings.FixedPoint.X;
         _y.Value = settings.FixedPoint.Y;
@@ -261,13 +263,14 @@ public sealed class MainForm : Form
         foreach (var point in settings.Points) AddPoint(point);
     }
 
+    // 2026/11/15 修改：MainForm 内部调用仍接收毫秒设置，秒输入仅在界面边界转换。
     private ClickSettings ReadSettings() => new()
     {
         Button = (Core.MouseButton)_button.SelectedIndex,
         Kind = (ClickKind)_kind.SelectedIndex,
         Mode = (TargetMode)_mode.SelectedIndex,
-        IntervalMilliseconds = (int)_interval.Value,
-        StartDelayMilliseconds = (int)_delay.Value,
+        IntervalMilliseconds = decimal.ToInt32(_interval.Value * 1000m),
+        StartDelayMilliseconds = decimal.ToInt32(_delay.Value * 1000m),
         RepeatCount = (int)_repeat.Value,
         FixedPoint = new ClickPoint((int)_x.Value, (int)_y.Value),
         Points = _points.Items.Cast<ListViewItem>().Select(item => (ClickPoint)item.Tag!).ToArray(),
@@ -300,7 +303,8 @@ public sealed class MainForm : Form
         _cancellation = new CancellationTokenSource();
         var token = _cancellation.Token;
         SetRunning(true);
-        ShowStatus($"运行中 · 启动延时 {settings.StartDelayMilliseconds} 毫秒，按 {_hotkeys.StopHotkeyText} 随时停止。");
+        // 2026/11/15 修改：状态提示使用相同秒单位，避免输入与执行说明混用单位。
+        ShowStatus($"运行中 · 启动延时 {settings.StartDelayMilliseconds / 1000m:0.###} s，按 {_hotkeys.StopHotkeyText} 随时停止。");
         try
         {
             await Task.Run(() => _engine.RunAsync(settings, token), token);

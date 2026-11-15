@@ -1,8 +1,9 @@
 // 文件：MainFormDesktopTests.cs
 // 描述：在独立配置和自有目标窗口内验证真实主窗口的全局启动、停止及再次启动。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/15
 // 历史：
+// v1.1 2026/11/15 五秒延时按秒设置并检查 s 状态文案。
 // v1.0 2026/11/15 新增 F6、Ctrl+F8、启动延时取消及主窗口生命周期桌面验收。
 
 using System.ComponentModel;
@@ -89,12 +90,12 @@ internal static class MainFormDesktopTests
             AssertCounts(counts, stoppedMessages / 2, stoppedMessages / 6);
             Console.WriteLine($"通过：真实 MainForm 持续点击由 Ctrl+F8 停止，停止延迟 {stopElapsed.Elapsed.TotalMilliseconds:F1} 毫秒；400 毫秒内无新增鼠标消息。");
 
-            // 2026/11/15 新增：等待引擎进入五秒启动延时且计数归零，再用 Ctrl+F8 取消，不能产生任何点击。
-            delay.Value = 5000;
+            // 2026/11/15 修改：界面以秒设置五秒启动延时，等待计数归零后用 Ctrl+F8 取消，不能产生点击。
+            delay.Value = 5;
             first = window.Messages.Count;
             DesktopTestKeyboard.SendF6(window.Handle);
             await WaitAsync(() => stopButton.Enabled && counts.Text == CountText(0, 0) &&
-                status.Text.Contains("启动延时 5000 毫秒", StringComparison.Ordinal),
+                status.Text.Contains("启动延时 5 s", StringComparison.Ordinal),
                 "主窗口未进入五秒启动延时", token);
             stopElapsed.Restart();
             DesktopTestKeyboard.SendControlF8(window.Handle);
@@ -104,7 +105,7 @@ internal static class MainFormDesktopTests
             await Task.Delay(400, token);
             Check(window.Messages.Count == first, "启动延时被取消后出现了鼠标点击。");
             AssertCounts(counts, 0, 0);
-            Console.WriteLine($"通过：真实 MainForm 的 5000 毫秒启动延时被 Ctrl+F8 取消，停止延迟 {stopElapsed.Elapsed.TotalMilliseconds:F1} 毫秒，零点击。");
+            Console.WriteLine($"通过：真实 MainForm 的 5 s 启动延时被 Ctrl+F8 取消，停止延迟 {stopElapsed.Elapsed.TotalMilliseconds:F1} 毫秒，零点击。");
 
             // 2026/11/15 新增：取消后再次由 F6 完成三点一轮，验证主窗口运行状态及计数已正确复位。
             delay.Value = 0;

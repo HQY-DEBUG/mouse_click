@@ -1,8 +1,9 @@
 // 文件：Program.cs
 // 描述：执行有显式桌面开关的 Windows 原生鼠标与热键集成验收。
-// 版本：v1.1
+// 版本：v1.2
 // 日期：2026/11/15
 // 历史：
+// v1.2 2026/11/15 接入真实主窗口与 Ctrl+F8 停止验收，热键冲突不再跳过。
 // v1.1 2026/11/15 新增真实桌面窗口诊断与固定停止组合键验收。
 // v1.0 2026/11/15 新增输入边界、真实多点与按键消息、热键冲突和资源释放测试。
 
@@ -104,6 +105,8 @@ internal static class Program
                         Console.WriteLine($"目标 {target.Id}：窗口={target.Handle}，可见={NativeMethods.IsWindowVisible(target.Handle)}，" +
                             $"矩形={target.ScreenBounds}，命中={NativeMethods.WindowFromPoint(new NativeMethods.NativePoint { X = target.Center.X, Y = target.Center.Y })}。");
                     await CheckDesktopInputsAsync(testWindow, cancellation.Token);
+                    // 2026/11/15 新增：用真实主窗体、真实键盘输入验证全局启动和紧急停止。
+                    await MainFormDesktopTests.RunAsync(testWindow, cancellation.Token);
                     cancellation.Token.ThrowIfCancellationRequested();
                     CheckHotkeyConflictAndRelease();
                     result = 0;
@@ -255,12 +258,8 @@ internal static class Program
         string? initialError = first.Register();
         if (initialError is not null)
         {
-            if (initialError.Contains("占用", StringComparison.Ordinal))
-            {
-                Console.WriteLine("跳过：无法隔离热键注册测试，F6、F7 或 Ctrl+F8 已被外部程序占用；未注销外部注册。 " +
-                    initialError.Replace(Environment.NewLine, " ", StringComparison.Ordinal));
-                return;
-            }
+            // [废弃] 2026/11/15 完整验收必须覆盖快捷键，外部占用改为失败，计划在 v1.5 清理。
+            // if (initialError.Contains("占用")) return;
             throw new InvalidOperationException("初次热键注册失败：" + initialError);
         }
         Check(first.CanToggle && first.CanStop && first.CanCapture, "初次注册成功时三个热键均应可用。");
@@ -273,7 +272,7 @@ internal static class Program
         string? afterDispose = second.Register();
         Check(afterDispose is null && second.CanToggle && second.CanStop && second.CanCapture,
             "首个窗口 Dispose 后，第二个窗口应能重新注册全部热键：" + afterDispose);
-        Console.WriteLine("通过：两个实例的热键注册冲突可见，Dispose 后注册已释放；未注入键盘输入。");
+        Console.WriteLine("通过：两个实例的热键注册冲突可见，Dispose 后注册已释放。");
     }
 
     // 2026/11/15 新增：断言比较独立的窗口观测值，失败时包含实际目标、按键、消息和坐标。

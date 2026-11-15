@@ -1,8 +1,10 @@
 // 文件：SettingsStore.cs
-// 说明：读取、校验并原子保存点击设置，保留损坏配置备份。
-// 版本：v1.0
+// 说明：选择发布模式配置路径，读取、校验并原子保存点击设置，保留损坏配置备份。
+// 版本：v1.1
 // 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增 JSON 设置持久化。
+// 历史：
+// v1.1 2026/11/15 按便携标记隔离配置目录并保留显式路径行为。
+// v1.0 2026/11/15 新增 JSON 设置持久化。
 
 using System.Text.Json;
 
@@ -19,6 +21,16 @@ public sealed class SettingsStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         this.path = Path.GetFullPath(path);
+    }
+
+    // 2026/11/15 新增：为 MainForm 正常启动选择默认路径；显式路径构造调用方不受影响。
+    public static string GetDefaultPath(string applicationDirectory, string localApplicationDataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(localApplicationDataDirectory);
+        return File.Exists(Path.Combine(applicationDirectory, "portable.flag"))
+            ? Path.Combine(applicationDirectory, "data", "settings.json")
+            : Path.Combine(localApplicationDataDirectory, "HQY.MouseClick", "settings.json");
     }
 
     // 2026/11/15 新增：只有文件或目录不存在时使用默认配置，其余读取与校验错误向上报告。

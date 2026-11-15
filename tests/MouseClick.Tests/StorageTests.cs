@@ -1,8 +1,10 @@
 // 文件：StorageTests.cs
-// 说明：用独立临时文件验证配置加载、保存与损坏数据保留。
-// 版本：v1.0
+// 说明：用独立临时文件验证配置加载、保存、发布模式隔离与损坏数据保留。
+// 版本：v1.1
 // 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增设置持久化行为测试。
+// 历史：
+// v1.1 2026/11/15 验证安装版与便携版配置隔离和显式路径优先。
+// v1.0 2026/11/15 新增设置持久化行为测试。
 
 using System.Text;
 using MouseClick.Core;
@@ -14,6 +16,11 @@ internal static class StorageTests
 {
     public static readonly (string Name, Func<Task> Run)[] All =
     [
+        // 2026/11/15 新增：通过独立目录验证发布模式选择，不读写真实用户配置。
+        ("无便携标记沿用安装版配置路径", InstalledModeKeepsExistingPath),
+        ("便携模式独立保存且不读取或覆盖安装版配置", PortableModeIsolatesSettings),
+        ("显式配置路径不受便携标记影响", ExplicitPathOverridesPortableMode),
+        ("便携目录不可写时报告错误且不回退安装版", PortableWriteFailureDoesNotFallback),
         ("缺失配置使用可执行默认设置且不创建文件", MissingFileLoadsDefaults),
         ("所有设置和多坐标原样保存回读", SaveAndLoadAllSettings),
         ("非法保存不覆盖已有配置", InvalidSavePreservesExistingFile),
@@ -22,6 +29,84 @@ internal static class StorageTests
         ("保存前为损坏原文件创建完整备份", SaveBacksUpDamagedFile),
         ("配置路径为空时明确拒绝", RejectEmptyPath)
     ];
+
+    // 2026/11/15 新增：无标记时必须继续读取原目录，避免升级后丢失既有设置。
+    private static Task InstalledModeKeepsExistingPath()
+    {
+        string root = Path.GetDirectoryName(NewPath())!;
+        string applicationDirectory = Path.Combine(root, "app");
+        string localApplicationData = Path.Combine(root, "local-app-data");
+        string installedPath = Path.Combine(localApplicationData, "HQY.MouseClick", "settings.json");
+        new SettingsStore(installedPath).Save(new ClickSettings { RepeatCount = 21 });
+
+        string selectedPath = SettingsStore.GetDefaultPath(applicationDirectory, localApplicationData);
+        Check(selectedPath == installedPath, "无标记应沿用 LocalApplicationData 下的 HQY.MouseClick 目录");
+        Check(new SettingsStore(selectedPath).Load().RepeatCount == 21, "安装模式应读取已有配置");
+        Check(!Directory.Exists(applicationDirectory), "选择配置路径不应在程序目录创建文件");
+        return Task.CompletedTask;
+    }
+
+    // 2026/11/15 新增：便携首次运行必须使用默认值，保存仅落入程序旁 data 目录。
+    private static Task PortableModeIsolatesSettings()
+    {
+        string root = Path.GetDirectoryName(NewPath())!;
+        string applicationDirectory = Path.Combine(root, "app");
+        string localApplicationData = Path.Combine(root, "local-app-data");
+        string installedPath = Path.Combine(localApplicationData, "HQY.MouseClick", "settings.json");
+        new SettingsStore(installedPath).Save(new ClickSettings { RepeatCount = 37 });
+        byte[] installedBytes = File.ReadAllBytes(installedPath);
+        Directory.CreateDirectory(applicationDirectory);
+        File.WriteAllText(Path.Combine(applicationDirectory, "portable.flag"), "");
+
+        string selectedPath = SettingsStore.GetDefaultPath(applicationDirectory, localApplicationData);
+        Check(selectedPath == Path.Combine(applicationDirectory, "data", "settings.json"), "便携配置应位于程序旁 data 目录");
+        var store = new SettingsStore(selectedPath);
+        Check(store.Load().RepeatCount == 0, "便携首次运行不得读取或迁移安装版配置");
+        Check(!File.Exists(selectedPath), "便携读取默认值不得提前创建配置");
+        store.Save(new ClickSettings { RepeatCount = 9 });
+        Check(store.Load().RepeatCount == 9, "便携配置应能独立保存和重新加载");
+        Check(installedBytes.SequenceEqual(File.ReadAllBytes(installedPath)), "便携保存不得改写安装版配置");
+        return Task.CompletedTask;
+    }
+
+    // 2026/11/15 新增：明确指定的隔离路径仍由调用方控制，不受发布标记重定向。
+    private static Task ExplicitPathOverridesPortableMode()
+    {
+        string root = Path.GetDirectoryName(NewPath())!;
+        string applicationDirectory = Path.Combine(root, "app");
+        string explicitPath = Path.Combine(root, "custom", "settings.json");
+        Directory.CreateDirectory(applicationDirectory);
+        File.WriteAllText(Path.Combine(applicationDirectory, "portable.flag"), "");
+        string portablePath = SettingsStore.GetDefaultPath(applicationDirectory, Path.Combine(root, "local-app-data"));
+        new SettingsStore(portablePath).Save(new ClickSettings { RepeatCount = 11 });
+        byte[] portableBytes = File.ReadAllBytes(portablePath);
+
+        var store = new SettingsStore(explicitPath);
+        Check(store.Load().RepeatCount == 0, "显式路径不得读取便携默认配置");
+        store.Save(new ClickSettings { RepeatCount = 15 });
+        Check(new SettingsStore(explicitPath).Load().RepeatCount == 15, "显式路径应保存到指定文件");
+        Check(portableBytes.SequenceEqual(File.ReadAllBytes(portablePath)), "显式路径保存不得改写便携默认配置");
+        return Task.CompletedTask;
+    }
+
+    // 2026/11/15 新增：用同名普通文件阻止创建 data 目录，验证错误传播及无隐式回退。
+    private static Task PortableWriteFailureDoesNotFallback()
+    {
+        string root = Path.GetDirectoryName(NewPath())!;
+        string applicationDirectory = Path.Combine(root, "app");
+        string localApplicationData = Path.Combine(root, "local-app-data");
+        string installedPath = Path.Combine(localApplicationData, "HQY.MouseClick", "settings.json");
+        new SettingsStore(installedPath).Save(new ClickSettings { RepeatCount = 23 });
+        byte[] installedBytes = File.ReadAllBytes(installedPath);
+        Directory.CreateDirectory(applicationDirectory);
+        File.WriteAllText(Path.Combine(applicationDirectory, "portable.flag"), "");
+        File.WriteAllText(Path.Combine(applicationDirectory, "data"), "阻止创建同名目录");
+
+        var store = new SettingsStore(SettingsStore.GetDefaultPath(applicationDirectory, localApplicationData));
+        Throws<IOException>(() => store.Save(new ClickSettings { RepeatCount = 31 }));
+        Check(installedBytes.SequenceEqual(File.ReadAllBytes(installedPath)), "便携保存失败不得回退并覆盖安装版配置");
+        return Task.CompletedTask;
+    }
 
     // 2026/11/15 新增：默认配置来源于缺文件分支，不能掩盖现有文件读取错误。
     private static Task MissingFileLoadsDefaults()

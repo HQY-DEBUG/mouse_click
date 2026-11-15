@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.3
+// 版本：v1.4
 // 日期：2026/11/15
 // 历史：
+// v1.4 2026/11/15 正常启动按便携标记选择独立设置目录。
 // v1.3 2026/11/15 嵌入用户选定的蓝紫双色指针图标。
 // v1.2 2026/11/15 分离配置及输入依赖，允许真实窗口验收使用独立配置。
-// v1.1 2026/11/15 固定 Ctrl+F8 停止提示，并将软件名称改为钰宇鼠标连点器。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -48,9 +48,9 @@ public sealed class MainForm : Form
     private bool _closeAfterStop;
     private string? _loadWarning;
 
-    // 2026/11/15 修改：正常启动仍使用原配置目录和 Windows 输入；调用方 Program 无需变更。
-    public MainForm() : this(new SettingsStore(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HQY.MouseClick", "settings.json")),
+    // 2026/11/15 修改：正常启动按程序目录便携标记选择配置位置；调用方 Program 无需变更。
+    public MainForm() : this(new SettingsStore(SettingsStore.GetDefaultPath(AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))),
         new WindowsClickOutput())
     {
     }

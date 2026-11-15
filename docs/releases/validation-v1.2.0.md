@@ -1,6 +1,6 @@
 # v1.2.0 发行验证记录
 
-日期：2026/11/15。平台：当前 Windows x64 桌面。功能与打包源码验证提交：`562f1a1b35c10ef0c7e74120b72b181f07398741`。最终附件从包含本记录的干净提交重新生成，其完整源码提交以附件 `release-manifest.json` 和 `v1.2.0` 标签为准。
+日期：2026/11/15。平台：当前 Windows x64 桌面。功能与打包源码验证提交：`562f1a1b35c10ef0c7e74120b72b181f07398741`。最终附件从干净提交 `daba797723a9bbc09dee5628788888bc03540651` 重新生成，`release-manifest.json` 与 `v1.2.0` 标签指向该提交；本记录后续补充仅记录发布结果，不改写已发行附件。
 
 ## 已执行并通过
 
@@ -23,6 +23,16 @@
 | 便携目录保护 | 安装目标设为便携目录时退出码 7，安装被拒绝且原便携 EXE 哈希不变 |
 | 用户配置保留 | 安装、启动、重装后既有设置文件字节与验收前一致 |
 | 独立审查 | 只读代码审查未发现阻止发行的具体问题 |
+| 最终包复核 | 最终安装包静默安装退出码 0；安装与 ZIP 内 EXE 哈希均与最终清单一致；ZIP 不含用户配置；既有配置哈希不变 |
+| GitHub 附件 | 4 个附件均上传成功，并从 GitHub 草稿逐个重新下载，SHA256 与本地文件一致后才公开 |
+
+## 正式发行
+
+- [v1.2.0 Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.2.0)，已公开，非预发行版。
+- 安装版：`YuyuMouseClick-v1.2.0-win-x64-setup.exe`，46,560,040 字节，SHA256 `3ec579ffdb5ad990cda88d7f6fdca4a2179c9164a0d9ece9df7b015a53904925`。
+- 便携版：`YuyuMouseClick-v1.2.0-win-x64-portable.zip`，46,011,762 字节，SHA256 `0df9c7f0179eef5729dd4f65d275ed6591c8b37e2d5b6dc5fa2ff389fac3d573`。
+- 同时发布 `SHA256SUMS.txt` 和 `release-manifest.json`；后者记录完整来源提交、工具版本和附件摘要。
+- 上传便携包等待响应曾超时；重新查询确认服务端已完成上传，复用原附件并完成下载哈希校验，没有覆盖已发布产物。
 
 ## 范围说明
 
@@ -32,4 +42,4 @@
 - 未在所有 Windows 版本、缩放组合或无 SDK 的全新系统逐一测试。程序按 self-contained win-x64 发布，单文件包含运行时。
 - 本版未使用产品代码签名证书。安装器构建工具来自官方并已验证签名；这不等于生成的产品安装包已签名。
 
-最终上传及下载哈希复核由发行操作完成，实际发布状态以 [GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.2.0) 为准。
+实际发布附件与下载入口见 [GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.2.0)。

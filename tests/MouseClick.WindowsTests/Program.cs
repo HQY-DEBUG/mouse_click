@@ -1,11 +1,11 @@
 // 文件：Program.cs
 // 描述：执行隐藏窗体回归、独立托盘桌面验收及 Windows 原生鼠标与热键集成验收。
-// 版本：v1.6
+// 版本：v1.7
 // 日期：2026/11/16
 // 历史：
+// v1.7 2026/11/16 增加控制键诊断及独立多窗口桌面验收入口。
 // v1.6 2026/11/16 提前输出桌面就绪诊断，保留命中守卫以定位等待超时。
 // v1.5 2026/11/16 新增仅使用假鼠标输出的独立托盘桌面验收开关。
-// v1.4 2026/11/16 接入隐藏主窗体的托盘关闭与偏好持久化回归。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -15,22 +15,31 @@ using MouseClick.Core;
 
 namespace MouseClick.WindowsTests;
 
-// 2026/11/16 修改：默认隐藏回归；--tray-desktop 仅验证假鼠标输出与真实停止热键，--desktop 才发送鼠标事件。
+// 2026/11/16 修改：默认隐藏回归；--hotkey-probe 只观察控制键，原生鼠标输入仅由显式桌面验收触发。
 internal static class Program
 {
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Any(argument => argument is not ("--desktop" or "--picker-only" or "--tray-desktop")) || args.Length > 1)
+        // 2026/11/16 修改：诊断开关单独运行，避免采集期间混入自动验收的合成输入。
+        if (args.Any(argument => argument is not ("--desktop" or "--picker-only" or "--tray-desktop" or "--hotkey-probe" or "--multi-window-desktop" or "--nohotkey-desktop" or "--cancel-click-desktop")) || args.Length > 1)
         {
-            Console.Error.WriteLine("参数无效。用法：MouseClick.WindowsTests [--desktop | --picker-only | --tray-desktop]");
+            Console.Error.WriteLine("参数无效。用法：MouseClick.WindowsTests [--desktop | --picker-only | --tray-desktop | --hotkey-probe | --multi-window-desktop | --nohotkey-desktop | --cancel-click-desktop]");
             return 1;
         }
 
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        // 2026/11/16 新增：独立托盘验收不进入原生鼠标桌面分支，整个流程限定为二十秒。
+        // 2026/11/16 新增：控制键诊断不进入测试点击器，不发送任何鼠标或键盘输入。
+        if (args is ["--hotkey-probe"]) return HotkeyProbe.Run();
+        // 2026/11/16 新增：多窗口原生输入验收只允许显式开关进入，不混入默认回归或只读诊断。
+        if (args is ["--multi-window-desktop"]) return MultiWindowDesktopTests.Run();
+        // 2026/11/16 新增：显式验证按住期间取消双击后只抬起、不再发送第二次按下。
+        if (args is ["--cancel-click-desktop"]) return MultiWindowDesktopTests.RunCancellation();
+        // 2026/11/16 新增：独立验证前台 Raw Input 标志对 F6 的影响，不发送鼠标输入。
+        if (args is ["--nohotkey-desktop"]) return NoHotkeyDesktopTests.Run();
+        // 2026/11/16 修改：独立托盘验收含长间隔静默观察，整个流程限定为三十秒。
         if (args is ["--tray-desktop"]) return TrayDesktopTests.Run();
         // 2026/11/15 新增：选点释放顺序回归只调用隐藏窗体处理器，不发送输入且可单独运行。
         int pickerFailures = PickerRegressionTests.Run();
@@ -42,6 +51,10 @@ internal static class Program
         if (TrayRegressionTests.Run() != 0) return 1;
         // 2026/11/16 新增：隐藏验证关闭对话框和设置窗口的保存、取消与记忆选项。
         if (PreferencesDialogTests.Run() != 0) return 1;
+        // 2026/11/16 新增：权限规则及真实令牌查询均只读，不需要显示或操作其他应用。
+        if (InputAccessGuardTests.Run() != 0) return 1;
+        // 2026/11/16 新增：双通道热键去重只运行纯逻辑，不注册热键或读取当前按键。
+        if (HotkeyPressGateTests.Run() != 0) return 1;
         try
         {
             CheckRejectedInputs();
@@ -310,9 +323,13 @@ internal sealed class GuardedOutput(TestTarget[] targets, CancellationToken toke
 {
     private readonly WindowsClickOutput output = new();
 
-    public void Click(MouseButton button, ClickKind kind, ClickPoint? point)
+    public void Click(MouseButton button, ClickKind kind, ClickPoint? point) => Click(button, kind, point, token);
+
+    // 2026/11/16 修改：同时保留测试生存期守卫与主窗口运行取消，确保真实输出按住期间可停止。
+    public void Click(MouseButton button, ClickKind kind, ClickPoint? point, CancellationToken runToken)
     {
         token.ThrowIfCancellationRequested();
+        runToken.ThrowIfCancellationRequested();
         if (point is null)
             throw new InvalidOperationException("桌面验收只允许指定测试目标，不允许跟随未知光标位置。");
         TestTarget? target = targets.SingleOrDefault(candidate => candidate.ScreenBounds.Contains(point.X, point.Y));
@@ -323,6 +340,7 @@ internal sealed class GuardedOutput(TestTarget[] targets, CancellationToken toke
             throw new InvalidOperationException($"目标 {target.Id} 被遮挡或不再可用，已拒绝发送鼠标输入。" +
                 $" 坐标 ({point.X},{point.Y})，期望窗口 {target.Handle}，实际窗口 {hit}。");
         token.ThrowIfCancellationRequested();
-        output.Click(button, kind, point);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, runToken);
+        output.Click(button, kind, point, linked.Token);
     }
 }

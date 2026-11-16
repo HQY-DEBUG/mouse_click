@@ -1,11 +1,11 @@
 // 文件：MainFormDesktopTests.cs
 // 描述：在独立配置和自有目标窗口内验证真实主窗口的全局启动、停止及再次启动。
-// 版本：v1.4
+// 版本：v1.6
 // 日期：2026/11/16
 // 历史：
+// v1.6 2026/11/16 复用有界按住守卫验证 F6 与 Ctrl+F8，取消时反序抬起全部键。
+// v1.5 2026/11/16 增加 F6 按住诊断，并允许停止清理的最后一对消息不计入完成动作。
 // v1.4 2026/11/16 清理直接请求退出并等待释放，支持自动隐藏后的运行窗体。
-// v1.3 2026/11/16 为托盘启动回归增加受前台守卫保护的 F9 与 F10 输入。
-// v1.2 2026/11/16 清理改用显式退出，避免关闭偏好保留测试窗体。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -88,7 +88,11 @@ internal static class MainFormDesktopTests
             Check(stoppedMessages >= 8 && stoppedMessages % 2 == 0,
                 $"停止后应保留至少四组完整 down/up，实际 {stoppedMessages} 条消息。");
             AssertSequence(window, first, targets, stoppedMessages / 2);
-            AssertCounts(counts, stoppedMessages / 2, stoppedMessages / 6);
+            // 2026/11/16 修改：取消可能在最后一次按住中补发 up；该消息对保持完整，但未完成动作不应计数。
+            int receivedPairs = stoppedMessages / 2;
+            Check(counts.Text == CountText(receivedPairs, receivedPairs / 3) ||
+                counts.Text == CountText(receivedPairs - 1, (receivedPairs - 1) / 3),
+                $"停止后 {receivedPairs} 对消息对应的完成动作应为 {receivedPairs} 或 {receivedPairs - 1}，轮数按完整三点计算，实际“{counts.Text}”。");
             Console.WriteLine($"通过：真实 MainForm 持续点击由 Ctrl+F8 停止，停止延迟 {stopElapsed.Elapsed.TotalMilliseconds:F1} 毫秒；400 毫秒内无新增鼠标消息。");
 
             // 2026/11/15 修改：界面以秒设置五秒启动延时，等待计数归零后用 Ctrl+F8 取消，不能产生点击。
@@ -237,6 +241,61 @@ internal static class DesktopTestKeyboard
     internal static void SendF9(IntPtr expectedForeground) => Send(expectedForeground, [F9Key]);
     internal static void SendF10(IntPtr expectedForeground) => Send(expectedForeground, [F10Key]);
     internal static void SendControlF8(IntPtr expectedForeground) => Send(expectedForeground, [ControlKey, F8Key]);
+
+    // 2026/11/16 修改：NoHotkeyDesktopTests 对两个启停组合共用100ms按住、前台守卫及反序抬起。
+    internal static Task<bool> SendHeldF6Async(IntPtr expectedForeground, CancellationToken token) =>
+        SendHeldAsync(expectedForeground, [F6Key], token);
+
+    internal static Task<bool> SendHeldControlF8Async(IntPtr expectedForeground, CancellationToken token) =>
+        SendHeldAsync(expectedForeground, [ControlKey, F8Key], token);
+
+    private static async Task<bool> SendHeldAsync(IntPtr expectedForeground, ushort[] keys, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (InputSize != (IntPtr.Size == 8 ? 40 : 28))
+            throw new InvalidOperationException($"键盘 INPUT 结构大小错误：{InputSize}。");
+        RequireForeground(expectedForeground);
+        for (int virtualKey = 0x08; virtualKey <= 0xfe; virtualKey++)
+        {
+            if ((GetAsyncKeyState(virtualKey) & 0x8000) != 0)
+                throw new InvalidOperationException($"检测到键盘键 0x{virtualKey:X2} 已按下，已拒绝按住快捷键实验。");
+        }
+        RequireForeground(expectedForeground);
+
+        bool heldStateObserved = false;
+        Exception? failure = null;
+        NativeInput[] presses = keys.Select(key => CreateKey(key, 0)).ToArray();
+        NativeInput[] releases = keys.Reverse().Select(key => CreateKey(key, KeyUp)).ToArray();
+        try
+        {
+            uint sent = SendInput((uint)presses.Length, presses, InputSize);
+            int error = Marshal.GetLastPInvokeError();
+            if (sent != presses.Length)
+                throw new Win32Exception(error, $"按住实验按下发送失败：{sent}/{presses.Length}。");
+            var elapsed = Stopwatch.StartNew();
+            while (elapsed.Elapsed < TimeSpan.FromMilliseconds(100))
+            {
+                token.ThrowIfCancellationRequested();
+                RequireForeground(expectedForeground);
+                heldStateObserved |= keys.All(key => (GetAsyncKeyState(key) & 0x8000) != 0);
+                await Task.Delay(10, token);
+            }
+        }
+        catch (Exception exception) { failure = exception; }
+        finally
+        {
+            // 2026/11/16 新增：取消或前台变化也必须直接尝试抬起，不让守卫阻断释放；保留原始及抬起失败。
+            uint released = SendInput((uint)releases.Length, releases, InputSize);
+            int error = Marshal.GetLastPInvokeError();
+            if (released != releases.Length)
+            {
+                var releaseFailure = new Win32Exception(error, $"按住实验抬起发送失败：{released}/{releases.Length}。");
+                failure = failure is null ? releaseFailure : new AggregateException(failure, releaseFailure);
+            }
+        }
+        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+        return heldStateObserved;
+    }
 
     // 2026/11/15 新增：一次批量发送完整组合键，部分发送后补发反序抬键并报告两个发送结果。
     private static void Send(IntPtr expectedForeground, ushort[] keys)

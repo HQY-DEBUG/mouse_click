@@ -1,11 +1,11 @@
 // 文件：TrayDesktopTests.cs
-// 描述：验证托盘热键、启动前隐藏及失败恢复，仅使用假鼠标输出计数。
-// 版本：v1.2
+// 描述：验证托盘热键、三秒间隔取消、启动前隐藏及失败恢复，仅使用假鼠标输出计数。
+// 版本：v1.3
 // 日期：2026/11/16
 // 历史：
+// v1.3 2026/11/16 新增四点三秒间隔中真实 F6 停止、重启及 Ctrl+F8 取消回归。
 // v1.2 2026/11/16 增加按钮及全部启动热键的首个输出隐藏边界、托盘失败恢复回归。
 // v1.1 2026/11/16 新增多点顺序模式先进入托盘再由 F6 启动、停止及再次启动的回归。
-// v1.0 2026/11/16 新增二十秒有界的独立托盘桌面验收，不发送鼠标输入或读取用户配置。
 
 using System.Diagnostics;
 using System.Reflection;
@@ -57,9 +57,10 @@ internal static class TrayDesktopTests
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Text = "托盘与 Ctrl+F8 自动验收，最长 20 秒。\n不会发送鼠标输入；关闭此窗口可取消。"
+            Text = "托盘与 Ctrl+F8 自动验收，最长 30 秒。\n不会发送鼠标输入；关闭此窗口可取消。"
         });
-        using var deadline = new System.Windows.Forms.Timer { Interval = 20000 };
+        // 2026/11/16 修改：新增两次三秒以上的停止后静默观察，将总期限延长十秒并保留有界清理。
+        using var deadline = new System.Windows.Forms.Timer { Interval = 30000 };
         MainForm? form = null;
         ClickEngine? engine = null;
         Exception? failure = null;
@@ -69,7 +70,7 @@ internal static class TrayDesktopTests
         deadline.Tick += (_, _) =>
         {
             deadline.Stop();
-            failure ??= new TimeoutException("托盘桌面全流程超过二十秒。");
+            failure ??= new TimeoutException("托盘桌面全流程超过三十秒。");
             lifetime.Cancel();
             CloseOwnedPreferences(form);
         };
@@ -91,6 +92,8 @@ internal static class TrayDesktopTests
                 output.ObserveVisibility(form.Visible);
                 engine = GetField<ClickEngine>(form, "_engine");
                 await CheckFlowAsync(host, form, store, output, lifetime.Token);
+                // 2026/11/16 新增：原有三点流程释放热键后，独立重建四点三秒配置验证长等待期间的停止响应。
+                await CheckLongIntervalTrayAsync(host, lifetime.Token);
             }
             catch (Exception exception)
             {
@@ -145,6 +148,98 @@ internal static class TrayDesktopTests
         }
         Console.WriteLine("结果：托盘桌面验收通过；主窗体、宿主及托盘资源已释放，零实际鼠标输出。");
         return 0;
+    }
+
+    // 2026/11/16 新增：保持真实窗体、热键和引擎，只替换桌面鼠标边界，捕获长间隔无法停止及取消后残留动作。
+    private static async Task CheckLongIntervalTrayAsync(Form host, CancellationToken token)
+    {
+        Rectangle bounds = Screen.PrimaryScreen?.Bounds
+            ?? throw new InvalidOperationException("四点长间隔验收需要可用的主屏幕。");
+        ClickPoint[] points =
+        [
+            new(bounds.Left + bounds.Width / 4, bounds.Top + bounds.Height / 4),
+            new(bounds.Left + bounds.Width * 3 / 4, bounds.Top + bounds.Height / 4),
+            new(bounds.Left + bounds.Width / 4, bounds.Top + bounds.Height * 3 / 4),
+            new(bounds.Left + bounds.Width * 3 / 4, bounds.Top + bounds.Height * 3 / 4)
+        ];
+        string settingsPath = Path.Combine(Path.GetTempPath(), "MouseClick.WindowsTests", "TrayLongInterval",
+            Guid.NewGuid().ToString("N"), "settings.json");
+        var store = new SettingsStore(settingsPath);
+        store.Save(new ClickSettings
+        {
+            Mode = TargetMode.Sequence,
+            Points = points,
+            RepeatCount = 0,
+            StartDelayMilliseconds = 0,
+            IntervalMilliseconds = 3000,
+            CloseBehavior = WindowCloseBehavior.MinimizeToTray
+        });
+        Console.WriteLine("四点三秒间隔独立配置（保留供诊断）：" + settingsPath);
+        using var outputLifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var output = new CountingOutput(outputLifetime.Token, points);
+        using var form = new MainForm(store, output,
+            () => throw new InvalidOperationException("长间隔托盘验收不应询问关闭选择。"));
+        form.VisibleChanged += (_, _) => output.ObserveVisibility(form.Visible);
+        output.ObserveVisibility(form.Visible);
+        ClickEngine engine = GetField<ClickEngine>(form, "_engine");
+        try
+        {
+            var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            form.Shown += (_, _) => shown.TrySetResult();
+            form.Show();
+            await shown.Task.WaitAsync(TimeSpan.FromSeconds(2), token);
+            Button start = Find<Button>(form, "StartButton");
+            Button stop = Find<Button>(form, "StopButton");
+            Label status = Find<Label>(form, "RunStatus");
+            Check(start.Enabled && status.Text.StartsWith("准备就绪。", StringComparison.Ordinal),
+                "四点三秒间隔验收的实际热键注册失败。状态：" + status.Text);
+            form.Close();
+            Check(form.IsInTray && !form.Visible && !form.IsDisposed && output.Count == 0,
+                "四点三秒间隔流程应先进入空闲托盘，再由 F6 启动。");
+
+            // 2026/11/16 新增：首轮真实 F6 停止，随后同一窗体再次 F6 启动并以 Ctrl+F8 取消，均观察超过完整间隔。
+            (string Name, Action<IntPtr> SendStop)[] stops =
+            [
+                ("F6", DesktopTestKeyboard.SendF6),
+                ("Ctrl+F8", DesktopTestKeyboard.SendControlF8)
+            ];
+            foreach (var item in stops)
+            {
+                await ActivateHostAsync(host, token);
+                long previousCount = output.Count;
+                output.PrepareRun();
+                DesktopTestKeyboard.SendF6(host.Handle);
+                await WaitAsync(() => stop.Enabled && output.Count == previousCount + 1,
+                    "四点三秒间隔的托盘 F6 启动或再次启动未产生首个假动作", token);
+                Check(form.IsInTray && !form.Visible && output.FirstOutputWasHidden,
+                    "四点三秒间隔启动应在托盘保持隐藏，首次假动作不能发生于可见主窗口。");
+                await Task.Delay(200, token);
+                Check(output.Count == previousCount + 1,
+                    "三秒间隔尚未到期，首个动作后约两百毫秒不能产生第二个假动作。");
+
+                var stopElapsed = Stopwatch.StartNew();
+                item.SendStop(host.Handle);
+                await WaitAsync(() => !stop.Enabled && !engine.IsRunning && status.Text == "已停止。",
+                    $"四点三秒间隔中真实 {item.Name} 未响应停止", token);
+                stopElapsed.Stop();
+                Check(stopElapsed.Elapsed < TimeSpan.FromSeconds(1),
+                    $"{item.Name} 停止耗时 {stopElapsed.ElapsedMilliseconds} 毫秒，应在一秒内取消三秒等待。");
+                long stoppedCount = output.Count;
+                Check(stoppedCount == previousCount + 1, $"{item.Name} 取消前后只能产生首个假动作。");
+                await Task.Delay(3300, token);
+                Check(output.Count == stoppedCount && !engine.IsRunning && form.IsInTray && !form.Visible,
+                    $"{item.Name} 停止后三点三秒内出现残留假动作、重新运行或意外恢复窗口。");
+                Console.WriteLine($"通过：四点三秒间隔从托盘 F6 启动后，真实 {item.Name} 在 {stopElapsed.ElapsedMilliseconds} 毫秒内停止；随后 3300 毫秒无新增假动作。");
+            }
+        }
+        finally
+        {
+            // 2026/11/16 新增：局部失败或总超时也先阻断假输出，再等待主窗体释放，防止热键残留影响后续验收。
+            outputLifetime.Cancel();
+            if (!form.IsDisposed) form.RequestExit();
+            await WaitAsync(() => form.IsDisposed && !engine.IsRunning,
+                "四点三秒间隔验收清理时主窗体或引擎未结束", CancellationToken.None);
+        }
     }
 
     // 2026/11/16 修改：先关闭空闲主窗体进入托盘，再从独立前台宿主用真实 F6 启动、停止及重启。
@@ -356,7 +451,7 @@ internal static class TrayDesktopTests
             dialog.Close();
     }
 
-    // 2026/11/16 新增：每个异步观测最多两秒，同时服从整条桌面流程的二十秒取消令牌。
+    // 2026/11/16 修改：每个异步观测最多两秒，同时服从整条桌面流程的三十秒取消令牌。
     private static async Task WaitAsync(Func<bool> condition, string description, CancellationToken token)
     {
         var elapsed = Stopwatch.StartNew();
@@ -388,7 +483,7 @@ internal static class TrayDesktopTests
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    // 2026/11/16 修改：假输出检查三点循环顺序并累计动作；每次重新启动从第一点开始，不连接原生鼠标接口。
+    // 2026/11/16 修改：假输出检查传入坐标的循环顺序并累计动作，覆盖三点与四点；每次重启从第一点开始。
     private sealed class CountingOutput(CancellationToken token, ClickPoint[] points) : IClickOutput
     {
         private long count;

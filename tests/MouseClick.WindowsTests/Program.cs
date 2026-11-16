@@ -1,11 +1,11 @@
 // 文件：Program.cs
-// 描述：执行隐藏窗体回归及有显式桌面开关的 Windows 原生鼠标与热键集成验收。
-// 版本：v1.3
-// 日期：2026/11/15
+// 描述：执行隐藏窗体回归、独立托盘桌面验收及 Windows 原生鼠标与热键集成验收。
+// 版本：v1.5
+// 日期：2026/11/16
 // 历史：
+// v1.5 2026/11/16 新增仅使用假鼠标输出的独立托盘桌面验收开关。
+// v1.4 2026/11/16 接入隐藏主窗体的托盘关闭与偏好持久化回归。
 // v1.3 2026/11/15 默认接入隐藏主窗体秒制小数设置回归。
-// v1.2 2026/11/15 接入真实主窗口与 Ctrl+F8 停止验收，热键冲突不再跳过。
-// v1.1 2026/11/15 新增真实桌面窗口诊断与固定停止组合键验收。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -15,27 +15,33 @@ using MouseClick.Core;
 
 namespace MouseClick.WindowsTests;
 
-// 2026/11/15 修改：默认运行隐藏窗体与输入边界回归；只有 --desktop 才显示窗口并发送鼠标事件。
+// 2026/11/16 修改：默认隐藏回归；--tray-desktop 仅验证假鼠标输出与真实停止热键，--desktop 才发送鼠标事件。
 internal static class Program
 {
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Any(argument => argument is not ("--desktop" or "--picker-only")) || args.Length > 1)
+        if (args.Any(argument => argument is not ("--desktop" or "--picker-only" or "--tray-desktop")) || args.Length > 1)
         {
-            Console.Error.WriteLine("参数无效。用法：MouseClick.WindowsTests [--desktop | --picker-only]");
+            Console.Error.WriteLine("参数无效。用法：MouseClick.WindowsTests [--desktop | --picker-only | --tray-desktop]");
             return 1;
         }
 
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        // 2026/11/16 新增：独立托盘验收不进入原生鼠标桌面分支，整个流程限定为二十秒。
+        if (args is ["--tray-desktop"]) return TrayDesktopTests.Run();
         // 2026/11/15 新增：选点释放顺序回归只调用隐藏窗体处理器，不发送输入且可单独运行。
         int pickerFailures = PickerRegressionTests.Run();
         if (pickerFailures != 0) return 1;
         if (args is ["--picker-only"]) return 0;
         // 2026/11/15 新增：秒制小数设置覆盖实际主窗体加载和关闭保存，不显示窗口或注册全局热键。
         if (MainFormSettingsRegressionTests.Run() != 0) return 1;
+        // 2026/11/16 新增：关闭与托盘生命周期使用隐藏窗体和提示替身，不创建真实托盘图标。
+        if (TrayRegressionTests.Run() != 0) return 1;
+        // 2026/11/16 新增：隐藏验证关闭对话框和设置窗口的保存、取消与记忆选项。
+        if (PreferencesDialogTests.Run() != 0) return 1;
         try
         {
             CheckRejectedInputs();

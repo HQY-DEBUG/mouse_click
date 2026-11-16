@@ -1,8 +1,9 @@
 // 文件：TrayDesktopTests.cs
-// 描述：以真实窗体、托盘菜单和 F6/Ctrl+F8 验证生命周期，仅使用假鼠标输出计数。
-// 版本：v1.1
+// 描述：验证托盘热键、启动前隐藏及失败恢复，仅使用假鼠标输出计数。
+// 版本：v1.2
 // 日期：2026/11/16
 // 历史：
+// v1.2 2026/11/16 增加按钮及全部启动热键的首个输出隐藏边界、托盘失败恢复回归。
 // v1.1 2026/11/16 新增多点顺序模式先进入托盘再由 F6 启动、停止及再次启动的回归。
 // v1.0 2026/11/16 新增二十秒有界的独立托盘桌面验收，不发送鼠标输入或读取用户配置。
 
@@ -40,7 +41,7 @@ internal static class TrayDesktopTests
             CloseBehavior = WindowCloseBehavior.MinimizeToTray
         });
         Console.WriteLine("托盘桌面验收独立配置（保留供诊断）：" + settingsPath);
-        Console.WriteLine("本流程显示真实窗口并注入 F6/Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
+        Console.WriteLine("本流程显示真实窗口并注入 F6/F9/F10/Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
 
         using var lifetime = new CancellationTokenSource();
         using var outputLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -85,6 +86,9 @@ internal static class TrayDesktopTests
             {
                 form = new MainForm(store, output,
                     () => throw new InvalidOperationException("托盘偏好或明确退出路径不应询问关闭选择。"));
+                // 2026/11/16 新增：仅 UI 线程读取控件可见性，后台假输出通过 volatile 快照检查隐藏顺序。
+                form.VisibleChanged += (_, _) => output.ObserveVisibility(form.Visible);
+                output.ObserveVisibility(form.Visible);
                 engine = GetField<ClickEngine>(form, "_engine");
                 await CheckFlowAsync(host, form, store, output, lifetime.Token);
             }
@@ -192,6 +196,28 @@ internal static class TrayDesktopTests
             "Ctrl+F8 停止后必须保持托盘隐藏，且静默期不能再产生假动作。");
         Console.WriteLine($"通过：真实 Ctrl+F8 停止托盘运行，最终 {stoppedCount} 个假动作，250 毫秒内无新增。");
 
+        // 2026/11/16 新增：分别验证可见窗口的四种启动入口，第一份输出必须发生在隐藏之后。
+        await CheckVisibleStartAsync(host, form, output, "开始按钮", () => start.PerformClick(), token);
+        ComboBox shortcut = Find<ComboBox>(form, "ShortcutChoice");
+        (int Index, string Name, Action<IntPtr> Send)[] shortcuts =
+        [
+            (0, "F6", DesktopTestKeyboard.SendF6),
+            (1, "F9", DesktopTestKeyboard.SendF9),
+            (2, "F10", DesktopTestKeyboard.SendF10)
+        ];
+        foreach (var item in shortcuts)
+        {
+            if (shortcut.SelectedIndex != item.Index)
+            {
+                shortcut.SelectedIndex = item.Index;
+                Check(start.Enabled && status.Text.StartsWith("准备就绪。", StringComparison.Ordinal),
+                    $"{item.Name} 热键注册未就绪，不能执行启动验收。状态：{status.Text}");
+            }
+            await CheckVisibleStartAsync(host, form, output, item.Name, () => item.Send(host.Handle), token);
+        }
+        await CheckInvalidSequenceAsync(host, form, output, token);
+        stoppedCount = output.Count;
+
         // 2026/11/16 新增：直接触发实际托盘菜单事件，验证恢复、设置取消/保存与明确退出。
         MenuItem(form, "显示主窗口").PerformClick();
         await WaitAsync(() => form.Visible && !form.IsInTray, "托盘菜单未恢复主窗体", token);
@@ -215,6 +241,72 @@ internal static class TrayDesktopTests
         Check(output.Count == stoppedCount, "停止后的菜单操作不能重新产生假动作。");
         Check(store.Load().CloseBehavior == WindowCloseBehavior.Ask, "明确退出不能改写保存的每次询问偏好。");
         Console.WriteLine("通过：托盘退出菜单绕过询问偏好并释放真实主窗体。");
+    }
+
+    // 2026/11/16 新增：恢复真实窗口后启动，Fake 边界记录第一份输出时的可见性，防止点击后才隐藏。
+    private static async Task CheckVisibleStartAsync(Form host, MainForm form, CountingOutput output,
+        string source, Action launch, CancellationToken token)
+    {
+        MenuItem(form, "显示主窗口").PerformClick();
+        await WaitAsync(() => form.Visible && !form.IsInTray, source + " 验收前未恢复主窗体", token);
+        await ActivateHostAsync(host, token);
+        output.PrepareRun();
+        long previousCount = output.Count;
+        launch();
+        await WaitAsync(() => output.FirstOutputObserved, source + " 没有到达首次假输出边界", token);
+        Check(output.FirstOutputWasHidden, source + " 的首次输出发生时主窗口仍可见，必须先隐藏再点击。");
+        Check(form.IsInTray && !form.Visible, source + " 成功启动后应保持托盘隐藏状态。");
+        await WaitAsync(() => output.Count >= previousCount + 4, source + " 隐藏后未持续运行", token);
+        DesktopTestKeyboard.SendControlF8(host.Handle);
+        Button stop = Find<Button>(form, "StopButton");
+        Label status = Find<Label>(form, "RunStatus");
+        await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", source + " 启动后 Ctrl+F8 未停止", token);
+        long stoppedCount = output.Count;
+        await Task.Delay(100, token);
+        Check(output.Count == stoppedCount, source + " 停止后仍产生假输出。");
+        Console.WriteLine($"通过：可见主窗口由 {source} 启动时先隐藏，首个输出及后续三点顺序正确，Ctrl+F8 可停止。");
+    }
+
+    // 2026/11/16 新增：托盘中的空序列必须恢复错误界面且保持零输出，避免热键失败看起来没有反应。
+    private static async Task CheckInvalidSequenceAsync(Form host, MainForm form, CountingOutput output,
+        CancellationToken token)
+    {
+        Check(form.IsInTray && !form.Visible, "无效序列回归应从已停止的托盘状态开始。");
+        Find<ComboBox>(form, "ShortcutChoice").SelectedIndex = 0;
+        Button start = Find<Button>(form, "StartButton");
+        Button stop = Find<Button>(form, "StopButton");
+        Label status = Find<Label>(form, "RunStatus");
+        Check(start.Enabled && status.Text.StartsWith("准备就绪。", StringComparison.Ordinal),
+            "空序列回归的 F6 热键注册失败。状态：" + status.Text);
+        ListView list = Find<ListView>(form, "PointList");
+        ListViewItem[] originalItems = list.Items.Cast<ListViewItem>().ToArray();
+        long previousCount = output.Count;
+        try
+        {
+            list.Items.Clear();
+            await ActivateHostAsync(host, token);
+            DesktopTestKeyboard.SendF6(host.Handle);
+            await WaitAsync(() => status.Text.Contains("至少需要一个坐标", StringComparison.Ordinal),
+                "托盘中空序列的 F6 启动没有给出坐标错误", token);
+            Check(form.Visible && !form.IsInTray && !stop.Enabled,
+                "托盘启动校验失败后必须恢复主窗口显示错误，并保持停止状态。");
+            await Task.Delay(100, token);
+            Check(output.Count == previousCount, "空序列启动失败不能产生任何假输出。");
+            Console.WriteLine("通过：托盘中空序列按 F6 恢复主窗口显示错误，零新增假输出。");
+        }
+        finally
+        {
+            list.Items.AddRange(originalItems);
+        }
+    }
+
+    // 2026/11/16 新增：实际功能键均发送给专用前台宿主，窗口切换后重新等待原生前台确认。
+    private static async Task ActivateHostAsync(Form host, CancellationToken token)
+    {
+        host.BringToFront();
+        host.Activate();
+        await WaitAsync(() => NativeMethods.GetForegroundWindow() == host.Handle,
+            "专用宿主未获得前台，已拒绝发送启动热键", token);
     }
 
     // 2026/11/16 新增：先排队一次实际对话框操作，再进入模态菜单事件；全流程期限负责兜底退出。
@@ -301,14 +393,32 @@ internal static class TrayDesktopTests
     {
         private long count;
         private int sequenceIndex;
+        private int windowVisible;
+        private int firstOutputVisibility = -1;
         internal long Count => Interlocked.Read(ref count);
+        internal bool FirstOutputObserved => Volatile.Read(ref firstOutputVisibility) >= 0;
+        internal bool FirstOutputWasHidden => Volatile.Read(ref firstOutputVisibility) == 0;
 
-        internal void PrepareRun() => Interlocked.Exchange(ref sequenceIndex, 0);
+        // 2026/11/16 新增：可见状态由 UI 事件更新，后台输出只读原子值，不访问任何 Control。
+        internal void ObserveVisibility(bool visible) => Volatile.Write(ref windowVisible, visible ? 1 : 0);
+
+        internal void PrepareRun()
+        {
+            Interlocked.Exchange(ref sequenceIndex, 0);
+            Interlocked.Exchange(ref firstOutputVisibility, -1);
+        }
 
         public void Click(MouseButton button, ClickKind kind, ClickPoint? point)
         {
             token.ThrowIfCancellationRequested();
             int index = Interlocked.Increment(ref sequenceIndex) - 1;
+            // 2026/11/16 新增：在首次假输出边界独立记录并拒绝可见窗口，捕获先点击后隐藏的时序错误。
+            if (index == 0)
+            {
+                int visible = Volatile.Read(ref windowVisible);
+                Interlocked.Exchange(ref firstOutputVisibility, visible);
+                Check(visible == 0, "首个假鼠标输出发生前主窗口仍可见。");
+            }
             ClickPoint expected = points[index % points.Length];
             Check(button == MouseButton.Left && kind == ClickKind.Single && point == expected,
                 $"多点假输出第 {index + 1} 次应为左键单击 ({expected.X},{expected.Y})，实际 {button}/{kind}/{point}。");

@@ -1,11 +1,11 @@
 // 文件：Program.cs
 // 描述：执行隐藏窗体回归、独立托盘桌面验收及 Windows 原生鼠标与热键集成验收。
-// 版本：v1.5
+// 版本：v1.6
 // 日期：2026/11/16
 // 历史：
+// v1.6 2026/11/16 提前输出桌面就绪诊断，保留命中守卫以定位等待超时。
 // v1.5 2026/11/16 新增仅使用假鼠标输出的独立托盘桌面验收开关。
 // v1.4 2026/11/16 接入隐藏主窗体的托盘关闭与偏好持久化回归。
-// v1.3 2026/11/15 默认接入隐藏主窗体秒制小数设置回归。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -102,16 +102,16 @@ internal static class Program
                 {
                     testWindow.Activate();
                     testWindow.BringToFront();
-                    await WaitForDesktopReadyAsync(testWindow, cancellation.Token);
-                    // 2026/11/15 新增：窗口就绪后单独计时，避免等待无遮挡耗尽输入验证期限。
-                    cancellation.CancelAfter(TimeSpan.FromSeconds(20));
-                    // 2026/11/15 新增：先观察实际窗口状态，再判断上次坐标命中失败的原因。
+                    // 2026/11/16 修改：就绪等待前输出可见性、前台和目标命中，超时也保留失败现场证据。
                     NativeMethods.GetWindowRect(testWindow.Handle, out var actualBounds);
                     Console.WriteLine($"桌面诊断：窗口={testWindow.Handle}，可见={NativeMethods.IsWindowVisible(testWindow.Handle)}，" +
                         $"前台={NativeMethods.GetForegroundWindow()}，托管矩形={testWindow.Bounds}，原生矩形={actualBounds}。");
                     foreach (var target in testWindow.SnapshotTargets())
                         Console.WriteLine($"目标 {target.Id}：窗口={target.Handle}，可见={NativeMethods.IsWindowVisible(target.Handle)}，" +
                             $"矩形={target.ScreenBounds}，命中={NativeMethods.WindowFromPoint(new NativeMethods.NativePoint { X = target.Center.X, Y = target.Center.Y })}。");
+                    await WaitForDesktopReadyAsync(testWindow, cancellation.Token);
+                    // 2026/11/15 新增：窗口就绪后单独计时，避免等待无遮挡耗尽输入验证期限。
+                    cancellation.CancelAfter(TimeSpan.FromSeconds(20));
                     await CheckDesktopInputsAsync(testWindow, cancellation.Token);
                     // 2026/11/15 新增：用真实主窗体、真实键盘输入验证全局启动和紧急停止。
                     await MainFormDesktopTests.RunAsync(testWindow, cancellation.Token);

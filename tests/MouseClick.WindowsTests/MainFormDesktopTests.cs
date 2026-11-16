@@ -1,11 +1,11 @@
 // 文件：MainFormDesktopTests.cs
 // 描述：在独立配置和自有目标窗口内验证真实主窗口的全局启动、停止及再次启动。
-// 版本：v1.2
+// 版本：v1.4
 // 日期：2026/11/16
 // 历史：
+// v1.4 2026/11/16 清理直接请求退出并等待释放，支持自动隐藏后的运行窗体。
+// v1.3 2026/11/16 为托盘启动回归增加受前台守卫保护的 F9 与 F10 输入。
 // v1.2 2026/11/16 清理改用显式退出，避免关闭偏好保留测试窗体。
-// v1.1 2026/11/15 五秒延时按秒设置并检查 s 状态文案。
-// v1.0 2026/11/15 新增 F6、Ctrl+F8、启动延时取消及主窗口生命周期桌面验收。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -130,17 +130,15 @@ internal static class MainFormDesktopTests
         }
         finally
         {
-            // 2026/11/15 新增：任何失败先禁止后续输出，再通过真实停止按钮等待结束后关闭；清理不依赖已取消的测试令牌。
+            // 2026/11/16 修改：先禁止后续输出，再直接请求退出并等待取消完成，不依赖隐藏按钮能否被点击。
             lifetime.Cancel();
             try
             {
                 if (!form.IsDisposed)
                 {
-                    if (stopButton.Enabled) stopButton.PerformClick();
-                    await WaitAsync(() => form.IsDisposed || !stopButton.Enabled,
-                        "清理时主窗口未结束运行", CancellationToken.None);
-                    // 2026/11/16 修改：桌面验收清理必须真正退出，不能进入关闭选择或托盘分支。
-                    if (!form.IsDisposed) form.RequestExit();
+                    form.RequestExit();
+                    await WaitAsync(() => form.IsDisposed,
+                        "清理时主窗口未停止运行并完成退出", CancellationToken.None);
                     Check(form.IsDisposed, "停止后主窗口未正常关闭，热键资源可能未释放。");
                 }
             }
@@ -227,11 +225,17 @@ internal static class DesktopTestKeyboard
     private const ushort ControlKey = 0x11;
     private const ushort F6Key = 0x75;
     private const ushort F8Key = 0x77;
+    // 2026/11/16 新增：与主窗口可选全局启动键保持一致，复用既有前台与按键释放守卫。
+    private const ushort F9Key = 0x78;
+    private const ushort F10Key = 0x79;
     private const uint KeyboardInputType = 1;
     private const uint KeyUp = 0x0002;
     private static readonly int InputSize = Marshal.SizeOf<NativeInput>();
 
     internal static void SendF6(IntPtr expectedForeground) => Send(expectedForeground, [F6Key]);
+    // 2026/11/16 新增：新增入口仅注入单个完整功能键，不改变组合停止键或鼠标输入路径。
+    internal static void SendF9(IntPtr expectedForeground) => Send(expectedForeground, [F9Key]);
+    internal static void SendF10(IntPtr expectedForeground) => Send(expectedForeground, [F10Key]);
     internal static void SendControlF8(IntPtr expectedForeground) => Send(expectedForeground, [ControlKey, F8Key]);
 
     // 2026/11/15 新增：一次批量发送完整组合键，部分发送后补发反序抬键并报告两个发送结果。

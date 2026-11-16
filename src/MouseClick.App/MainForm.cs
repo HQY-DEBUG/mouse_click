@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.6
+// 版本：v1.7
 // 日期：2026/11/16
 // 历史：
+// v1.7 2026/11/16 启动成功后先隐藏到托盘，托盘启动或运行失败时显示错误。
 // v1.6 2026/11/16 新增托盘后台运行、关闭询问和可修改的记忆偏好。
 // v1.5 2026/11/15 时间输入及提示改为秒，保留毫秒配置兼容性。
-// v1.4 2026/11/15 正常启动按便携标记选择独立设置目录。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -337,6 +337,8 @@ public sealed class MainForm : Form
         ShowStatus($"运行中 · 启动延时 {settings.StartDelayMilliseconds / 1000m:0.###} s，按 {_hotkeys.StopHotkeyText} 随时停止。");
         try
         {
+            // 2026/11/16 新增：按钮、托盘菜单和全局快捷键共用此入口，首个鼠标动作前移开主窗口。
+            MinimizeToTray();
             await Task.Run(() => _engine.RunAsync(settings, token), token);
             ShowStatus("已完成设定轮数。");
         }
@@ -395,6 +397,8 @@ public sealed class MainForm : Form
         _status.Text = text;
         _status.ForeColor = error ? Ui.Danger : Ui.Accent;
         _status.AccessibleDescription = text;
+        // 2026/11/16 新增：托盘中启动或运行失败时显示原因，避免快捷键已响应却看起来毫无反应。
+        if (error && IsInTray) RestoreFromTray();
     }
 
     // 2026/11/15 新增：点选层隐藏主窗口，结束选择后恢复窗口及列表。

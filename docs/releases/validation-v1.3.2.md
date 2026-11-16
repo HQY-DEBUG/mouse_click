@@ -92,4 +92,7 @@ dotnet run --project tests/MouseClick.WindowsTests -c Release --no-build -- --de
 
 - 安装版：46,569,302 字节；SHA256 `81d3a87b520c0cdf0738b5060eab37ec79ab5103c0961e0fc5cfc668f6ff294a`。
 - 便携版：46,022,512 字节；SHA256 `a7371602a69bfd7da03fdc57ada7e4bed5686e1d8cfdacc0c2c4dbbd1c72cf2a`。
-- Git 标签、GitHub Release 和附件重新下载复核待执行。本记录不以旧版本结果替代本版验收。
+- [v1.3.2 Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.3.2) 已公开，非预发行，旧版本保留。
+- 标签与清单均指向源码提交 `afad9b64cb596660ac1996a11f65af62628cc10f`。
+- 安装包、便携 ZIP、`SHA256SUMS.txt` 和 `release-manifest.json` 已全部从 GitHub 重新下载；四份文件哈希与本地一致后才公开。
+- 本记录追加结果不改变标签和已发行附件，也不以旧版本结果替代本版验收。

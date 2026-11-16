@@ -1,8 +1,9 @@
 // 文件：MainFormDesktopTests.cs
 // 描述：在独立配置和自有目标窗口内验证真实主窗口的全局启动、停止及再次启动。
-// 版本：v1.1
-// 日期：2026/11/15
+// 版本：v1.2
+// 日期：2026/11/16
 // 历史：
+// v1.2 2026/11/16 清理改用显式退出，避免关闭偏好保留测试窗体。
 // v1.1 2026/11/15 五秒延时按秒设置并检查 s 状态文案。
 // v1.0 2026/11/15 新增 F6、Ctrl+F8、启动延时取消及主窗口生命周期桌面验收。
 
@@ -138,7 +139,8 @@ internal static class MainFormDesktopTests
                     if (stopButton.Enabled) stopButton.PerformClick();
                     await WaitAsync(() => form.IsDisposed || !stopButton.Enabled,
                         "清理时主窗口未结束运行", CancellationToken.None);
-                    if (!form.IsDisposed) form.Close();
+                    // 2026/11/16 修改：桌面验收清理必须真正退出，不能进入关闭选择或托盘分支。
+                    if (!form.IsDisposed) form.RequestExit();
                     Check(form.IsDisposed, "停止后主窗口未正常关闭，热键资源可能未释放。");
                 }
             }

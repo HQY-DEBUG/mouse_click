@@ -1,8 +1,9 @@
 // 文件：MainFormSettingsRegressionTests.cs
 // 描述：在隐藏主窗体中验证秒制小数输入与既有毫秒配置之间的加载、读取和保存。
-// 版本：v1.0
-// 日期：2026/11/15
+// 版本：v1.1
+// 日期：2026/11/16
 // 历史：
+// v1.1 2026/11/16 清理改用显式退出，避免默认关闭询问干扰隐藏设置回归。
 // v1.0 2026/11/15 新增旧配置兼容、小数回存、精度与上下限及整数控件回归。
 
 using System.Globalization;
@@ -168,7 +169,8 @@ internal static class MainFormSettingsRegressionTests
         }
         finally
         {
-            form.Close();
+            // 2026/11/16 修改：设置回归结束明确退出，绕过默认关闭询问并正常保存配置。
+            form.RequestExit();
         }
         Check(form.IsDisposed, "隐藏主窗体关闭后应释放窗口和热键资源。");
         return store.Load();

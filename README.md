@@ -4,20 +4,21 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 下载
 
-当前正式版本：**v1.3.1**。请从 [GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.3.1) 下载：
+本版：**v1.3.2**。下载入口：[GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.3.2)。
 
 | 发行文件 | 用途 |
 | --- | --- |
-| [YuyuMouseClick-v1.3.1-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.1/YuyuMouseClick-v1.3.1-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
-| [YuyuMouseClick-v1.3.1-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.1/YuyuMouseClick-v1.3.1-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
-| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.1/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
-| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.1/release-manifest.json) | 版本、源码提交及发行产物信息 |
+| [YuyuMouseClick-v1.3.2-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.2/YuyuMouseClick-v1.3.2-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
+| [YuyuMouseClick-v1.3.2-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.2/YuyuMouseClick-v1.3.2-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
+| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.2/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
+| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.3.2/release-manifest.json) | 版本、源码提交及发行产物信息 |
 
-发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示；请核对下载来源及校验值。详见 [v1.3.1 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/docs/releases/v1.3.1.md) 和 [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/CHANGELOG.md)。
+发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示；请核对下载来源及校验值。详见 [v1.3.2 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/docs/releases/v1.3.2.md) 和 [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/CHANGELOG.md)。
 
 ## 功能
 
 - 左键、右键、中键；单击、双击。
+- 鼠标按下后保持 50 ms 再抬起，提高需要持续按住的目标程序兼容性；停止时释放已按下按钮。
 - 设置点击间隔、启动延时、指定轮数或持续运行。
 - 跟随鼠标、固定坐标、多坐标顺序循环。
 - 在屏幕上点击选取坐标，添加任意数量的位置，调整顺序或移除。
@@ -31,7 +32,7 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 使用
 
-安装版运行 `YuyuMouseClick-v1.3.1-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
+安装版运行 `YuyuMouseClick-v1.3.2-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
 
 便携版先完整解压 ZIP，再双击其中的 `钰宇鼠标连点器.exe`；请保留同目录的 `portable.flag`，不要直接从 ZIP 预览中启动。
 
@@ -51,6 +52,10 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 | 完成多点选择 | 鼠标右键 / Esc |
 
 快捷键冲突会显示原因；Ctrl+F8 不可用时禁止启动，释放后重新选择开始/停止快捷键以重试注册。点击间隔范围 0.001～86400 s，启动延时范围 0～3600 s；超过三位小数按三位四舍五入，步进按钮每次调整 0.1 s。实际节奏受 Windows 调度影响，不承诺毫秒级实时精度。旧配置保持实际时长不变，例如原 5000 毫秒显示为 5.000 s。
+
+单击按住 50 ms；双击由两次 50 ms 按住组成，中间释放 20 ms。**点击间隔仍是在一次动作完成后等待的时长**，不是相邻动作起点之间的总时间。例如设置 3 s，连续单击的起点间隔约为 3.05 s，双击约为 3.12 s，另有系统调度开销。停止可取消按住或等待，已按下的按钮会抬起，不补发额外单击。
+
+启停键和 Ctrl+F8 增加按键状态检测，并与原生热键消息去重；仍须成功注册相应快捷键，不绕过占用冲突。F7 取点继续使用原生热键。
 
 启动失败时，程序会保留或恢复主窗口并显示具体原因；例如停止热键不可用、坐标不在当前屏幕内或设置无法保存。已经进入托盘时，也可按当前全局启停快捷键启动、停止或重新开始连点，无需先恢复窗口。
 
@@ -79,16 +84,16 @@ powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.3.1/`；同版本输出目录已存在时拒绝覆盖，可用 `-OutputRoot` 指定其他输出根目录。源码仓库不包含大型 .NET 自包含二进制；下载成品请使用上方 Release 入口。完整发布步骤见 [发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/docs/releasing.md)。
+源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.3.2/`；同版本输出目录已存在时拒绝覆盖，可用 `-OutputRoot` 指定其他输出根目录。源码仓库不包含大型 .NET 自包含二进制；下载成品请使用上方 Release 入口。完整发布步骤见 [发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/docs/releasing.md)。
 
-v1.3.1 增加启动自动托盘、先进入托盘后使用 F6 启动/停止/重启，以及启动失败恢复错误提示的回归覆盖；具体执行结果见[本版验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.1.md)。本轮改动前，跟随鼠标和三点顺序模式的真实热键基线均通过；用户反馈的托盘 F6 无响应暂未复现，原因仍待定位。
+v1.3.2 已通过构建、25 项核心测试、默认 Windows 回归，以及四窗口输入保持、双击取消、托盘长间隔停止、热键兼容性和完整桌面验收，详见[本版验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.2.md)。本轮针对用户四坐标、3 s 间隔的反馈排查；自有窗口结果不代表四个游戏的业务操作均已验证，事实与限制见[输入兼容性诊断](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/diagnostics/2026-11-16-input-compatibility.md)。
 
-v1.3.0 的配置、隐藏窗体与计数替身托盘验收见[v1.3.0 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.0.md)。更早的真实鼠标多点循环、三键单双击和快捷键验收见[历史记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.0/docs/validation-2026-11-15.md)，这些记录不视为 v1.3.1 重复执行的证据。测试使用独立配置，不覆盖用户设置。
+此前版本的验收见[v1.3.1 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.1.md)、[v1.3.0 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.0.md)和[早期桌面输入记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.0/docs/validation-2026-11-15.md)，不视为 v1.3.2 重复执行的证据。测试使用独立配置，不覆盖用户设置。
 
-目标程序若以管理员身份运行，连点器可能也需要相同权限；是否接收模拟输入由目标程序决定。**托盘后台驻留仍会产生实际桌面鼠标输入**，不是向隐藏的目标窗口发送后台点击；本工具不提供后台窗口点击或操作录制。Windows 输入与热键实现参考微软 [SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput) 和 [RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)。
+每次按下前会检查前台窗口和目标窗口的权限；发现权限高于连点器时停止并提示处理方式。请先退出连点器，再按提示右键选择“以管理员身份运行”，或将目标程序改为普通权限；软件不会自动提权。是否接收模拟输入仍由目标程序决定。**托盘后台驻留仍会产生实际桌面鼠标输入**，本工具不提供后台窗口点击或操作录制。Windows 输入与热键实现参考微软 [SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput) 和 [RegisterHotKey](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey)。
 
 ## 开发记录
 
-程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/assets/icons/SOURCE.md)。
+程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/assets/icons/SOURCE.md)。
 
-按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.1/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。
+按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.3.2/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。

@@ -1,11 +1,11 @@
 // 文件：HotkeyWindow.cs
-// 描述：使用消息窗口注册全局启停、紧急停止和取点快捷键。
-// 版本：v1.2
-// 日期：2026/11/15
+// 描述：注册全局启停、紧急停止和取点快捷键，并以按键状态补充被前台禁用的启停消息。
+// 版本：v1.3
+// 日期：2026/11/16
 // 历史：
+// v1.3 2026/11/16 增加启停键状态采样及双通道去重，保留注册冲突和取点行为。
 // v1.2 2026/11/15 固定 Ctrl+F8 紧急停止，移除自动换键并拒绝旧组合消息。
 // v1.1 2026/11/15 新增停止键占用时的组合键回退，并校验消息中的组合键。
-// v1.0 2026/11/15 新增快捷键注册、冲突报告、消息分发和关闭注销。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -26,6 +26,10 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     private const uint StopModifiers = 0x0002;
     private const int HotkeyAlreadyRegistered = 1409;
     private readonly Dictionary<int, string> _registered = new();
+    // 2026/11/16 新增：仅采样两个已注册的启停组合，单独去重；不安装键盘钩子、不采集文字或扩展 F7。
+    private readonly System.Windows.Forms.Timer _keyStateTimer = new() { Interval = 10 };
+    private readonly HotkeyPressGate _toggleGate = new();
+    private readonly HotkeyPressGate _stopGate = new();
     private int _toggleVirtualKey = 0x75;
     private bool _disposed;
 
@@ -48,6 +52,8 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
             Caption = "MouseClick.Hotkeys",
             Parent = new IntPtr(-3)
         });
+        // 2026/11/16 新增：使用现有 UI 消息泵调度状态读取，事件仍沿 MainForm 已有启停订阅派发。
+        _keyStateTimer.Tick += PollKeyStates;
     }
 
     // 2026/11/15 修改：先注销旧注册，再注册固定 Ctrl+F8；失败时保留独立诊断并禁止启动。
@@ -71,6 +77,10 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         CanStop = TryRegister(StopId, 0x77, "Ctrl+F8（紧急停止）", failures, StopModifiers);
         CanCapture = TryRegister(CaptureId, 0x76, "F7（获取鼠标位置）", failures);
         CanToggle = TryRegister(ToggleId, toggleVirtualKey, $"{toggleName}（开始/停止）", failures);
+        // 2026/11/16 新增：已按住的键先等待释放，注册失败的组合不可经采样绕过冲突限制。
+        _toggleGate.Reset(IsKeyDown(_toggleVirtualKey));
+        _stopGate.Reset(IsKeyDown(0x77));
+        if (CanToggle || CanStop) _keyStateTimer.Start();
         return failures.Count == 0 ? null : string.Join(Environment.NewLine, failures);
     }
 
@@ -96,7 +106,7 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         return false;
     }
 
-    // 2026/11/15 修改：停止消息仅接受 Ctrl+F8，拒绝无修饰 F8、Ctrl+Alt+F8 及其他组合。
+    // 2026/11/16 修改：保留注册及精确组合校验，只去掉被状态采样覆盖的迟到消息，F7 仍仅由原生派发。
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == HotkeyMessage && !_disposed)
@@ -106,10 +116,12 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
             switch (message.WParam.ToInt32())
             {
                 case ToggleId when CanToggle && virtualKey == _toggleVirtualKey && modifiers == 0:
-                    ToggleRequested?.Invoke();
+                    if (_toggleGate.Native(unchecked((uint)GetMessageTime()), IsKeyDown(_toggleVirtualKey)))
+                        ToggleRequested?.Invoke();
                     return;
                 case StopId when CanStop && virtualKey == 0x77 && modifiers == StopModifiers:
-                    StopRequested?.Invoke();
+                    if (_stopGate.Native(unchecked((uint)GetMessageTime()), IsKeyDown(0x77)))
+                        StopRequested?.Invoke();
                     return;
                 case CaptureId when CanCapture && virtualKey == 0x76 && modifiers == 0:
                     CaptureRequested?.Invoke();
@@ -120,9 +132,28 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         base.WndProc(ref message);
     }
 
+    // 2026/11/16 新增：状态采样只识别无修饰配置 Fn 与精确 Ctrl+F8，Fn/F8 释放之前不重复派发。
+    private void PollKeyStates(object? sender, EventArgs args)
+    {
+        if (_disposed) return;
+        uint modifiers = (IsKeyDown(0x12) ? 1u : 0u) | (IsKeyDown(0x11) ? 2u : 0u)
+            | (IsKeyDown(0x10) ? 4u : 0u) | (IsKeyDown(0x5B) || IsKeyDown(0x5C) ? 8u : 0u);
+        uint timestamp = unchecked((uint)Environment.TickCount);
+        bool toggle = _toggleGate.Sample(IsKeyDown(_toggleVirtualKey), CanToggle && modifiers == 0, timestamp);
+        bool stop = _stopGate.Sample(IsKeyDown(0x77), CanStop && modifiers == StopModifiers, timestamp);
+        if (stop) StopRequested?.Invoke();
+        if (toggle) ToggleRequested?.Invoke();
+    }
+
+    private static bool IsKeyDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
     // 2026/11/15 新增：所有注册均尝试注销；注销失败保留记录供关闭时重试，同时停止消息分发。
     private List<string> UnregisterAll()
     {
+        // 2026/11/16 新增：注销前先停止采样并清空去重，旧注册失败也不能继续由状态检测派发。
+        _keyStateTimer.Stop();
+        _toggleGate.Reset();
+        _stopGate.Reset();
         CanToggle = false;
         CanStop = false;
         CanCapture = false;
@@ -160,6 +191,8 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         }
         finally
         {
+            // 2026/11/16 新增：停止后释放定时器，防止消息窗口销毁后保留采样回调。
+            _keyStateTimer.Dispose();
             DestroyHandle();
             _registered.Clear();
             GC.SuppressFinalize(this);
@@ -174,4 +207,11 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool UnregisterHotKey(IntPtr window, int id);
+
+    // 2026/11/16 新增：仅读取按键高位与消息毫秒时间；两条派发通道使用相同系统开机时钟去重。
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("user32.dll")]
+    private static extern int GetMessageTime();
 }

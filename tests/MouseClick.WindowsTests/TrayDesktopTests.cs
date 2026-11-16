@@ -1,8 +1,9 @@
 // 文件：TrayDesktopTests.cs
-// 描述：以真实窗体、托盘菜单和 Ctrl+F8 验证生命周期，仅使用假鼠标输出计数。
-// 版本：v1.0
+// 描述：以真实窗体、托盘菜单和 F6/Ctrl+F8 验证生命周期，仅使用假鼠标输出计数。
+// 版本：v1.1
 // 日期：2026/11/16
 // 历史：
+// v1.1 2026/11/16 新增多点顺序模式先进入托盘再由 F6 启动、停止及再次启动的回归。
 // v1.0 2026/11/16 新增二十秒有界的独立托盘桌面验收，不发送鼠标输入或读取用户配置。
 
 using System.Diagnostics;
@@ -19,21 +20,31 @@ internal static class TrayDesktopTests
     {
         string settingsPath = Path.Combine(Path.GetTempPath(), "MouseClick.WindowsTests", "TrayDesktop",
             Guid.NewGuid().ToString("N"), "settings.json");
+        // 2026/11/16 修改：使用主屏幕内三个明确目标匹配多点模式，假输出逐次验证实际引擎的顺序。
+        Rectangle bounds = Screen.PrimaryScreen?.Bounds
+            ?? throw new InvalidOperationException("托盘桌面验收需要可用的主屏幕。");
+        ClickPoint[] points =
+        [
+            new(bounds.Left + bounds.Width / 4, bounds.Top + bounds.Height / 3),
+            new(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2),
+            new(bounds.Left + bounds.Width * 3 / 4, bounds.Top + bounds.Height * 2 / 3)
+        ];
         var store = new SettingsStore(settingsPath);
         store.Save(new ClickSettings
         {
-            Mode = TargetMode.Cursor,
+            Mode = TargetMode.Sequence,
+            Points = points,
             RepeatCount = 0,
             StartDelayMilliseconds = 0,
             IntervalMilliseconds = 40,
             CloseBehavior = WindowCloseBehavior.MinimizeToTray
         });
         Console.WriteLine("托盘桌面验收独立配置（保留供诊断）：" + settingsPath);
-        Console.WriteLine("本流程显示真实窗口并注入 Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
+        Console.WriteLine("本流程显示真实窗口并注入 F6/Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
 
         using var lifetime = new CancellationTokenSource();
         using var outputLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        var output = new CountingOutput(outputLifetime.Token);
+        var output = new CountingOutput(outputLifetime.Token, points);
         using var host = new Form
         {
             Name = "TrayDesktopTestHost",
@@ -132,7 +143,7 @@ internal static class TrayDesktopTests
         return 0;
     }
 
-    // 2026/11/16 新增：真实主窗体启动引擎，隐藏后计数继续，再由独立前台宿主发送全局停止组合键。
+    // 2026/11/16 修改：先关闭空闲主窗体进入托盘，再从独立前台宿主用真实 F6 启动、停止及重启。
     private static async Task CheckFlowAsync(Form host, MainForm form, SettingsStore store,
         CountingOutput output, CancellationToken token)
     {
@@ -146,19 +157,33 @@ internal static class TrayDesktopTests
         Label status = Find<Label>(form, "RunStatus");
         Check(start.Enabled && status.Text.StartsWith("准备就绪。", StringComparison.Ordinal),
             "实际主窗体未注册全部热键，不能执行托盘桌面验收。状态：" + status.Text);
-        start.PerformClick();
-        await WaitAsync(() => stop.Enabled && output.Count >= 4, "假鼠标输出没有正常启动", token);
         form.Close();
         Check(form.IsInTray && !form.Visible && !form.IsDisposed, "关闭后应隐藏到托盘并保留窗体。");
-        long hiddenCount = output.Count;
-        await WaitAsync(() => output.Count >= hiddenCount + 4, "隐藏到托盘后假鼠标输出没有继续", token);
-        Check(stop.Enabled, "托盘运行期间停止入口应保持可用。");
-        Console.WriteLine($"通过：真实引擎进入托盘后继续产生假动作，计数 {hiddenCount} → {output.Count}。");
+        Check(output.Count == 0 && !stop.Enabled, "首次进入托盘前不能提前启动或产生假动作。");
 
         host.BringToFront();
         host.Activate();
         await WaitAsync(() => NativeMethods.GetForegroundWindow() == host.Handle,
-            "专用宿主未获得前台，已拒绝发送 Ctrl+F8", token);
+            "专用宿主未获得前台，已拒绝发送 F6", token);
+        output.PrepareRun();
+        DesktopTestKeyboard.SendF6(host.Handle);
+        await WaitAsync(() => stop.Enabled && output.Count >= 4, "先关闭到托盘后，真实 F6 未能启动假鼠标输出", token);
+        Check(form.IsInTray && !form.Visible, "托盘 F6 启动不能重新显示主窗口。");
+        long firstRunCount = output.Count;
+        DesktopTestKeyboard.SendF6(host.Handle);
+        await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", "真实 F6 未能停止托盘运行", token);
+        long firstStoppedCount = output.Count;
+        await Task.Delay(250, token);
+        Check(output.Count == firstStoppedCount, "F6 停止后静默期不能再产生假动作。");
+        Console.WriteLine($"通过：多点主窗体先进入托盘，真实 F6 启动并再次停止，{firstStoppedCount} 个假动作均按三个坐标顺序执行。");
+
+        output.PrepareRun();
+        DesktopTestKeyboard.SendF6(host.Handle);
+        await WaitAsync(() => stop.Enabled && output.Count >= firstStoppedCount + 4,
+            "F6 停止后未能再次启动托盘中的假鼠标输出", token);
+        Check(form.IsInTray && !form.Visible && output.Count > firstRunCount,
+            "F6 再次启动应保持托盘隐藏并产生新动作。");
+        Console.WriteLine($"通过：真实 F6 在托盘中可再次启动，累计假动作 {firstStoppedCount} → {output.Count}。");
         DesktopTestKeyboard.SendControlF8(host.Handle);
         await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", "真实 Ctrl+F8 未停止托盘运行", token);
         long stoppedCount = output.Count;
@@ -271,17 +296,22 @@ internal static class TrayDesktopTests
         if (!condition) throw new InvalidOperationException(message);
     }
 
-    // 2026/11/16 新增：线程安全的纯计数适配器；取消后立即拒绝调用，不持有任何原生鼠标输出对象。
-    private sealed class CountingOutput(CancellationToken token) : IClickOutput
+    // 2026/11/16 修改：假输出检查三点循环顺序并累计动作；每次重新启动从第一点开始，不连接原生鼠标接口。
+    private sealed class CountingOutput(CancellationToken token, ClickPoint[] points) : IClickOutput
     {
         private long count;
+        private int sequenceIndex;
         internal long Count => Interlocked.Read(ref count);
+
+        internal void PrepareRun() => Interlocked.Exchange(ref sequenceIndex, 0);
 
         public void Click(MouseButton button, ClickKind kind, ClickPoint? point)
         {
             token.ThrowIfCancellationRequested();
-            Check(button == MouseButton.Left && kind == ClickKind.Single && point is null,
-                "托盘假输出只接受预设的跟随光标左键单击配置。");
+            int index = Interlocked.Increment(ref sequenceIndex) - 1;
+            ClickPoint expected = points[index % points.Length];
+            Check(button == MouseButton.Left && kind == ClickKind.Single && point == expected,
+                $"多点假输出第 {index + 1} 次应为左键单击 ({expected.X},{expected.Y})，实际 {button}/{kind}/{point}。");
             Interlocked.Increment(ref count);
         }
     }

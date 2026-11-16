@@ -1,11 +1,11 @@
 // 文件：HotkeyWindow.cs
 // 描述：注册全局启停、紧急停止和取点快捷键，并以按键状态补充被前台禁用的启停消息。
-// 版本：v1.3
+// 版本：v1.4
 // 日期：2026/11/16
 // 历史：
+// v1.4 2026/11/16 将去重时间戳放在状态读取之后，避免读取期间新按下被重复派发。
 // v1.3 2026/11/16 增加启停键状态采样及双通道去重，保留注册冲突和取点行为。
 // v1.2 2026/11/15 固定 Ctrl+F8 紧急停止，移除自动换键并拒绝旧组合消息。
-// v1.1 2026/11/15 新增停止键占用时的组合键回退，并校验消息中的组合键。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -138,9 +138,12 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         if (_disposed) return;
         uint modifiers = (IsKeyDown(0x12) ? 1u : 0u) | (IsKeyDown(0x11) ? 2u : 0u)
             | (IsKeyDown(0x10) ? 4u : 0u) | (IsKeyDown(0x5B) || IsKeyDown(0x5C) ? 8u : 0u);
+        // 2026/11/16 修改：先读取状态再记采样时间，避免读取期间新按下的原生消息比采样时间更新而重复派发。
+        bool toggleDown = IsKeyDown(_toggleVirtualKey);
+        bool stopDown = IsKeyDown(0x77);
         uint timestamp = unchecked((uint)Environment.TickCount);
-        bool toggle = _toggleGate.Sample(IsKeyDown(_toggleVirtualKey), CanToggle && modifiers == 0, timestamp);
-        bool stop = _stopGate.Sample(IsKeyDown(0x77), CanStop && modifiers == StopModifiers, timestamp);
+        bool toggle = _toggleGate.Sample(toggleDown, CanToggle && modifiers == 0, timestamp);
+        bool stop = _stopGate.Sample(stopDown, CanStop && modifiers == StopModifiers, timestamp);
         if (stop) StopRequested?.Invoke();
         if (toggle) ToggleRequested?.Invoke();
     }

@@ -1,8 +1,9 @@
 // 文件：StorageTests.cs
 // 说明：用独立临时文件验证配置加载、保存、发布模式隔离与损坏数据保留。
-// 版本：v1.1
-// 日期：2026/11/15
+// 版本：v1.2
+// 日期：2026/11/16
 // 历史：
+// v1.2 2026/11/16 验证关闭偏好保存、旧配置默认值与非法偏好保护。
 // v1.1 2026/11/15 验证安装版与便携版配置隔离和显式路径优先。
 // v1.0 2026/11/15 新增设置持久化行为测试。
 
@@ -22,10 +23,14 @@ internal static class StorageTests
         ("显式配置路径不受便携标记影响", ExplicitPathOverridesPortableMode),
         ("便携目录不可写时报告错误且不回退安装版", PortableWriteFailureDoesNotFallback),
         ("缺失配置使用可执行默认设置且不创建文件", MissingFileLoadsDefaults),
-        ("所有设置和多坐标原样保存回读", SaveAndLoadAllSettings),
+        // 2026/11/16 新增：兼容旧配置并同时验证两种记住偏好不会丢失其余设置。
+        ("旧配置缺少关闭行为时默认询问且保留毫秒时长", LegacySettingsDefaultToAsk),
+        ("两种关闭偏好与全部设置原样保存回读", SaveAndLoadAllSettings),
         ("非法保存不覆盖已有配置", InvalidSavePreservesExistingFile),
         ("损坏 JSON 读取报错并保留原始文件", BadJsonLoadPreservesFile),
         ("JSON 无效设置读取报错并保留原始文件", InvalidSettingsLoadPreservesFile),
+        // 2026/11/16 新增：读取配置必须拒绝未定义的关闭行为并保留原文。
+        ("非法关闭行为读取报错并保留原始文件", InvalidCloseBehaviorLoadPreservesFile),
         ("保存前为损坏原文件创建完整备份", SaveBacksUpDamagedFile),
         ("配置路径为空时明确拒绝", RejectEmptyPath)
     ];
@@ -116,36 +121,63 @@ internal static class StorageTests
         settings.Validate();
         Check(settings.Mode == TargetMode.Cursor && settings.RepeatCount == 0 && settings.IntervalMilliseconds == 100,
             "缺文件应给出持续跟随鼠标的默认设置");
+        // 2026/11/16 新增：首次启动必须询问关闭动作，不能默认为记住的选择。
+        Check(settings.CloseBehavior == WindowCloseBehavior.Ask, "首次启动关闭行为应默认为询问");
         Check(!File.Exists(path), "读取默认设置不应生成配置文件");
         return Task.CompletedTask;
     }
 
-    // 2026/11/15 新增：捕获字段丢失、坐标顺序改变或正常保存遗留半写入临时文件的问题。
+    // 2026/11/16 新增：旧 JSON 未包含关闭字段时保留询问默认值及原有整数毫秒数。
+    private static Task LegacySettingsDefaultToAsk()
+    {
+        const string content = "{\"IntervalMilliseconds\":5000,\"StartDelayMilliseconds\":1500,\"RepeatCount\":17}";
+        string path = WriteFixture(content);
+        var store = new SettingsStore(path);
+        ClickSettings settings = store.Load();
+        Check(settings.CloseBehavior == WindowCloseBehavior.Ask, "旧配置缺少关闭字段时应询问");
+        Check(settings.IntervalMilliseconds == 5000 && settings.StartDelayMilliseconds == 1500 && settings.RepeatCount == 17,
+            "增加关闭行为不得把旧毫秒字段按秒转换或丢失轮数");
+        Check(File.ReadAllText(path) == content, "读取旧配置不得自动改写文件");
+        store.Save(settings);
+        ClickSettings reloaded = new SettingsStore(path).Load();
+        Check(reloaded.CloseBehavior == WindowCloseBehavior.Ask && reloaded.IntervalMilliseconds == 5000
+            && reloaded.StartDelayMilliseconds == 1500 && reloaded.RepeatCount == 17,
+            "旧配置保存回读后仍应询问并保留原有毫秒时长和轮数");
+        return Task.CompletedTask;
+    }
+
+    // 2026/11/16 修改：两种记住偏好均完整回读全部点击设置，捕获偏好保存时丢字段或改变单位。
     private static Task SaveAndLoadAllSettings()
     {
-        string path = NewPath();
-        var store = new SettingsStore(path);
-        var expected = new ClickSettings
+        foreach (WindowCloseBehavior behavior in new[] { WindowCloseBehavior.MinimizeToTray, WindowCloseBehavior.Exit })
         {
-            Button = MouseButton.Right,
-            Kind = ClickKind.Double,
-            IntervalMilliseconds = 123,
-            StartDelayMilliseconds = 456,
-            RepeatCount = 7,
-            Mode = TargetMode.Sequence,
-            FixedPoint = new(-9, 8),
-            Points = [new(-100, 200), new(300, -400)],
-            ToggleHotkey = 0x79
-        };
-        store.Save(expected);
-        ClickSettings actual = store.Load();
-        Check(actual.Button == MouseButton.Right && actual.Kind == ClickKind.Double, "按键与双击应保留");
-        Check(actual.IntervalMilliseconds == 123 && actual.StartDelayMilliseconds == 456 && actual.RepeatCount == 7, "运行时序应保留");
-        Check(actual.Mode == TargetMode.Sequence && actual.FixedPoint == new ClickPoint(-9, 8) && actual.ToggleHotkey == 0x79, "模式、固定坐标和快捷键应保留");
-        Check(actual.Points.SequenceEqual(new[] { new ClickPoint(-100, 200), new ClickPoint(300, -400) }), "坐标及顺序应保留");
-        store.Save(expected with { RepeatCount = 8 });
-        Check(store.Load().RepeatCount == 8, "第二次保存应替换已有配置");
-        Check(Directory.GetFiles(Path.GetDirectoryName(path)!).Length == 1, "正常原子保存不应遗留临时文件或损坏备份");
+            string path = NewPath();
+            var store = new SettingsStore(path);
+            var expected = new ClickSettings
+            {
+                Button = MouseButton.Right,
+                Kind = ClickKind.Double,
+                IntervalMilliseconds = 123,
+                StartDelayMilliseconds = 456,
+                RepeatCount = 7,
+                Mode = TargetMode.Sequence,
+                FixedPoint = new(-9, 8),
+                Points = [new(-100, 200), new(300, -400)],
+                ToggleHotkey = 0x79,
+                CloseBehavior = behavior
+            };
+            store.Save(expected);
+            ClickSettings actual = new SettingsStore(path).Load();
+            Check(actual.CloseBehavior == behavior, "记住的关闭偏好应重新加载");
+            Check(actual.Button == MouseButton.Right && actual.Kind == ClickKind.Double, "按键与双击应保留");
+            Check(actual.IntervalMilliseconds == 123 && actual.StartDelayMilliseconds == 456 && actual.RepeatCount == 7, "运行时序应保留");
+            Check(actual.Mode == TargetMode.Sequence && actual.FixedPoint == new ClickPoint(-9, 8) && actual.ToggleHotkey == 0x79, "模式、固定坐标和快捷键应保留");
+            Check(actual.Points.SequenceEqual(new[] { new ClickPoint(-100, 200), new ClickPoint(300, -400) }), "坐标及顺序应保留");
+            store.Save(expected with { RepeatCount = 8 });
+            ClickSettings updated = store.Load();
+            Check(updated.RepeatCount == 8 && updated.CloseBehavior == behavior, "再次保存点击设置应替换旧值并保留关闭偏好");
+            Check(Directory.GetFiles(Path.GetDirectoryName(path)!).Length == 1, "正常原子保存不应遗留临时文件或损坏备份");
+        }
         return Task.CompletedTask;
     }
 
@@ -157,6 +189,8 @@ internal static class StorageTests
         store.Save(new ClickSettings());
         byte[] before = File.ReadAllBytes(path);
         Throws<ArgumentException>(() => store.Save(new ClickSettings { IntervalMilliseconds = 0 }));
+        // 2026/11/16 新增：非法关闭枚举也必须在保存前拒绝，不能覆盖原配置。
+        Throws<ArgumentException>(() => store.Save(new ClickSettings { CloseBehavior = (WindowCloseBehavior)99 }));
         Throws<ArgumentNullException>(() => store.Save(null!));
         Check(before.SequenceEqual(File.ReadAllBytes(path)), "非法保存应保留原始字节");
         return Task.CompletedTask;
@@ -188,6 +222,19 @@ internal static class StorageTests
             string path = WriteFixture(content);
             Throws<InvalidDataException>(() => new SettingsStore(path).Load());
             Check(File.ReadAllText(path) == content, "无效配置内容应保留");
+        }
+        return Task.CompletedTask;
+    }
+
+    // 2026/11/16 新增：防止新增关闭选项被反序列化忽略或作为未定义枚举接受。
+    private static Task InvalidCloseBehaviorLoadPreservesFile()
+    {
+        foreach (string content in new[] { "{\"CloseBehavior\":-1}", "{\"CloseBehavior\":99}" })
+        {
+            string path = WriteFixture(content);
+            byte[] before = File.ReadAllBytes(path);
+            Throws<InvalidDataException>(() => new SettingsStore(path).Load());
+            Check(before.SequenceEqual(File.ReadAllBytes(path)), "非法关闭偏好读取失败必须保留原始字节");
         }
         return Task.CompletedTask;
     }

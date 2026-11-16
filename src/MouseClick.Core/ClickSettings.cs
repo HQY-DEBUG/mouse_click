@@ -1,8 +1,9 @@
 // 文件：ClickSettings.cs
 // 说明：定义点击设置、坐标与参数校验。
-// 版本：v1.1
-// 日期：2026/11/15
-// 历史：v1.1 2026/11/15 校验提示采用秒，保持存储字段及数值边界不变。
+// 版本：v1.2
+// 日期：2026/11/16
+// 历史：v1.2 2026/11/16 新增关闭行为偏好，旧配置默认询问并拒绝非法枚举。
+// v1.1 2026/11/15 校验提示采用秒，保持存储字段及数值边界不变。
 // v1.0 2026/11/15 新增点击设置和输入边界。
 
 namespace MouseClick.Core;
@@ -14,6 +15,9 @@ public sealed record ClickPoint(int X, int Y);
 public enum MouseButton { Left, Right, Middle }
 public enum ClickKind { Single, Double }
 public enum TargetMode { Cursor, Fixed, Sequence }
+
+// 2026/11/16 新增：为 MainForm 关闭流程与 SettingsStore 持久化提供统一的关闭行为选项。
+public enum WindowCloseBehavior { Ask, MinimizeToTray, Exit }
 
 // 2026/11/15 新增：集中定义可保存的设置和合法输入范围。
 public sealed record ClickSettings
@@ -27,6 +31,8 @@ public sealed record ClickSettings
     public ClickPoint FixedPoint { get; init; } = new(0, 0);
     public IReadOnlyList<ClickPoint> Points { get; init; } = Array.Empty<ClickPoint>();
     public int ToggleHotkey { get; init; } = 0x75;
+    // 2026/11/16 新增：旧配置未保存此字段时默认询问，记住偏好由主窗口选择后保存。
+    public WindowCloseBehavior CloseBehavior { get; init; } = WindowCloseBehavior.Ask;
 
     // 2026/11/15 新增：在执行和保存边界拒绝不合法设置。
     public void Validate()
@@ -34,6 +40,8 @@ public sealed record ClickSettings
         if (!Enum.IsDefined(Button)) throw new ArgumentException("鼠标按键无效。", nameof(Button));
         if (!Enum.IsDefined(Kind)) throw new ArgumentException("点击类型无效。", nameof(Kind));
         if (!Enum.IsDefined(Mode)) throw new ArgumentException("目标模式无效。", nameof(Mode));
+        // 2026/11/16 新增：在加载、保存及执行边界拒绝未定义的关闭行为。
+        if (!Enum.IsDefined(CloseBehavior)) throw new ArgumentException("关闭行为无效。", nameof(CloseBehavior));
         // 2026/11/15 修改：供界面显示的时间错误使用秒单位，内部调用契约仍为整数毫秒。
         if (IntervalMilliseconds is < 1 or > 86400000)
             throw new ArgumentException("点击间隔必须为 0.001～86400 s。", nameof(IntervalMilliseconds));

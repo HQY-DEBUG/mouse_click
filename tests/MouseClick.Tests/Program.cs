@@ -1,8 +1,9 @@
 // 文件：Program.cs
 // 说明：运行无第三方测试框架的核心行为验证，失败时返回非零退出码。
-// 版本：v1.0
-// 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增设置、执行器及存储行为验证入口。
+// 版本：v1.1
+// 日期：2026/11/16
+// 历史：v1.1 2026/11/16 覆盖关闭行为枚举的合法选项与非法边界。
+// v1.0 2026/11/15 新增设置、执行器及存储行为验证入口。
 
 using System.Diagnostics;
 using MouseClick.Core;
@@ -224,8 +225,13 @@ internal static class Program
         (Quick with { IntervalMilliseconds = 1, StartDelayMilliseconds = 0, RepeatCount = 0 }).Validate();
         (Quick with { IntervalMilliseconds = 86400000, StartDelayMilliseconds = 3600000, RepeatCount = 1000000, ToggleHotkey = 0x78 }).Validate();
         (Quick with { Mode = TargetMode.Fixed, FixedPoint = new(int.MinValue, int.MaxValue), ToggleHotkey = 0x79 }).Validate();
+        // 2026/11/16 新增：所有关闭选项允许保存；未定义的负数和正数值均须拒绝。
+        (Quick with { CloseBehavior = WindowCloseBehavior.Ask }).Validate();
+        (Quick with { CloseBehavior = WindowCloseBehavior.MinimizeToTray }).Validate();
+        (Quick with { CloseBehavior = WindowCloseBehavior.Exit }).Validate();
         ClickSettings[] invalid =
         [
+            Quick with { CloseBehavior = (WindowCloseBehavior)(-1) }, Quick with { CloseBehavior = (WindowCloseBehavior)99 },
             Quick with { IntervalMilliseconds = 0 }, Quick with { IntervalMilliseconds = 86400001 },
             Quick with { StartDelayMilliseconds = -1 }, Quick with { StartDelayMilliseconds = 3600001 },
             Quick with { RepeatCount = -1 }, Quick with { RepeatCount = 1000001 },

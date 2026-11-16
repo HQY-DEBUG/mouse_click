@@ -1,11 +1,14 @@
 // 文件：WindowsClickOutput.cs
 // 描述：使用 Windows SendInput 输出完整鼠标动作，并校验物理屏幕坐标。
-// 版本：v1.0
-// 日期：2026/11/15
+// 版本：v1.2
+// 日期：2026/11/16
 // 历史：
+// v1.2 2026/11/16 支持按住及双击间隔取消，成功抬起后保留取消异常并禁止后续按下。
+// v1.1 2026/11/16 分开按下与抬起并保持五十毫秒，异常路径补发抬起并保留原始错误。
 // v1.0 2026/11/15 新增原生点击、虚拟桌面坐标转换和失败抬键补救。
 
 using System.ComponentModel;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using MouseClick.Core;
 
@@ -30,9 +33,14 @@ public sealed class WindowsClickOutput : IClickOutput
     private const int VirtualScreenHeight = 79;
     private static readonly int InputSize = Marshal.SizeOf<NativeInput>();
 
-    // 2026/11/15 新增：将定位和完整按下、抬起序列放入同一批次，双击发送两对按钮事件。
-    public void Click(MouseButton button, ClickKind kind, ClickPoint? point)
+    // 2026/11/16 修改：保留既有三参数调用契约，无令牌调用复用同一分批输出及抬起清理。
+    public void Click(MouseButton button, ClickKind kind, ClickPoint? point) =>
+        Click(button, kind, point, CancellationToken.None);
+
+    // 2026/11/16 新增：ClickEngine 及桌面验收可在保持期间取消；MainForm 工作线程仍使用同步调用。
+    public void Click(MouseButton button, ClickKind kind, ClickPoint? point, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         (uint down, uint up) = button switch
         {
             MouseButton.Left => (MouseLeftDown, MouseLeftUp),
@@ -47,40 +55,89 @@ public sealed class WindowsClickOutput : IClickOutput
             _ => throw new ArgumentOutOfRangeException(nameof(kind), "不支持的点击类型。")
         };
 
-        NativeInput[] inputs = new NativeInput[(clickCount * 2) + (point is null ? 0 : 1)];
-        int index = 0;
-        if (point is not null)
-        {
-            inputs[index++] = CreateMove(point);
-        }
+        // [废弃] 2026/11/16 同批次按下/抬起持续时间为零，改用分批保持50ms，计划在 v1.4 清理。
+        // inputs[index++] = CreateMouseInput(down);
+        // inputs[index++] = CreateMouseInput(up);
+        // SendInput((uint)inputs.Length, inputs, InputSize);
 
+        // 2026/11/16 修改：首次定位与按下仍保持同批，坐标先校验；抬起独立发送，单击绝不增加第二次按下。
+        NativeInput[] press = point is null
+            ? [CreateMouseInput(down)]
+            : [CreateMove(point), CreateMouseInput(down)];
+        NativeInput[] release = [CreateMouseInput(up)];
         for (int click = 0; click < clickCount; click++)
         {
-            inputs[index++] = CreateMouseInput(down);
-            inputs[index++] = CreateMouseInput(up);
-        }
+            // 2026/11/16 新增：取消优先于新按下，权限预检耗时期间发生取消也须在实际发送前再次检查。
+            token.ThrowIfCancellationRequested();
+            // 2026/11/16 新增：每次按下前检查前台及目标权限，已按下后的抬起清理不得被预检阻断。
+            InputAccessGuard.EnsureCanSend(point);
+            bool releaseRequired = false;
+            Exception? failure = null;
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                uint sent = SendInput((uint)press.Length, press, InputSize);
+                int pressError = Marshal.GetLastPInvokeError();
+                releaseRequired = sent > 0;
+                if (sent != press.Length)
+                    throw new InvalidOperationException(
+                        $"鼠标按下发送失败（已发送 {sent}/{press.Length} 个事件）：{DescribeError(pressError)}。" +
+                        " 可能与目标程序权限较高、桌面不可交互或输入被阻止有关。");
 
-        uint sent = SendInput((uint)inputs.Length, inputs, InputSize);
-        if (sent == inputs.Length)
-        {
-            return;
-        }
+                // 2026/11/16 修改：正常按住至少50ms兼容轮询目标，单击节奏额外约50ms；取消立即进入finally抬起。
+                WaitWithCancellation(50, token);
+                uint released = SendInput(1, release, InputSize);
+                int releaseError = Marshal.GetLastPInvokeError();
+                if (released != 1)
+                    throw new InvalidOperationException(
+                        $"鼠标抬起发送失败（已发送 {released}/1 个事件）：{DescribeError(releaseError)}。" +
+                        " 可能与目标程序权限较高、桌面不可交互或输入被阻止有关。");
+                releaseRequired = false;
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            finally
+            {
+                // 2026/11/16 新增：按下已发送后，即使抬起返回0或保持期间异常，也必须尝试释放并保留原始及恢复错误。
+                if (releaseRequired)
+                {
+                    try
+                    {
+                        uint recovered = SendInput(1, release, InputSize);
+                        int recoveryError = Marshal.GetLastPInvokeError();
+                        // 2026/11/16 修改：取消后的抬起成功保留原取消类型；抬起失败仍报告原始错误及恢复错误。
+                        if (recovered != 1 || failure is not OperationCanceledException)
+                        {
+                            string recovery = recovered == 1
+                                ? " 已补发鼠标抬起事件。"
+                                : $" 补发鼠标抬起事件也失败：{DescribeError(recoveryError)}。";
+                            failure = new InvalidOperationException(failure!.Message + recovery, failure);
+                        }
+                    }
+                    catch (Exception recoveryException)
+                    {
+                        failure = new AggregateException("鼠标动作失败，异常清理时抬起也失败。", failure!, recoveryException);
+                    }
+                }
+            }
 
-        // 2026/11/15 新增：立即保留原始错误；部分发送后补发抬键，避免失败时留下按住状态。
-        int error = Marshal.GetLastPInvokeError();
-        string recovery = string.Empty;
-        if (sent > 0)
-        {
-            NativeInput[] release = [CreateMouseInput(up)];
-            uint released = SendInput(1, release, InputSize);
-            recovery = released == 1
-                ? " 已补发鼠标抬起事件。"
-                : $" 补发鼠标抬起事件也失败：{DescribeError(Marshal.GetLastPInvokeError())}。";
+            if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+            // 2026/11/16 修改：双击两对间释放20ms且可取消，取消后不发送第二次按下，不额外移动或补点。
+            if (click + 1 < clickCount)
+            {
+                WaitWithCancellation(20, token);
+                press = [CreateMouseInput(down)];
+            }
         }
+    }
 
-        throw new InvalidOperationException(
-            $"鼠标输入发送失败（已发送 {sent}/{inputs.Length} 个事件）：{DescribeError(error)}。" +
-            " 可能与目标程序权限较高、桌面不可交互或输入被阻止有关。" + recovery);
+    // 2026/11/16 新增：仅阻塞既有输出工作线程，取消唤醒等待并抛出携带原令牌的取消异常。
+    private static void WaitWithCancellation(int milliseconds, CancellationToken token)
+    {
+        token.WaitHandle.WaitOne(milliseconds);
+        token.ThrowIfCancellationRequested();
     }
 
     // 2026/11/15 新增：同时检查实际显示器及虚拟桌面，支持负坐标并拒绝显示器之间的空白区域。

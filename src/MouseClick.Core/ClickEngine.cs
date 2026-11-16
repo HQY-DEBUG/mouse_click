@@ -1,8 +1,10 @@
 // 文件：ClickEngine.cs
 // 说明：按设置执行可取消的鼠标动作并累计完整轮数。
-// 版本：v1.0
-// 日期：2026/11/15
-// 历史：v1.0 2026/11/15 新增输入接口与顺序执行器。
+// 版本：v1.1
+// 日期：2026/11/16
+// 历史：
+// v1.1 2026/11/16 为输入动作传递取消令牌，保留既有三参数输出适配器兼容性。
+// v1.0 2026/11/15 新增输入接口与顺序执行器。
 
 namespace MouseClick.Core;
 
@@ -10,6 +12,13 @@ namespace MouseClick.Core;
 public interface IClickOutput
 {
     void Click(MouseButton button, ClickKind kind, ClickPoint? point);
+
+    // 2026/11/16 新增：引擎调用此入口；WindowsClickOutput 可取消动作内部等待，既有三参数假输出无需修改。
+    void Click(MouseButton button, ClickKind kind, ClickPoint? point, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        Click(button, kind, point);
+    }
 }
 
 // 2026/11/15 新增：为窗口提供每次运行的动作数、完整轮数和运行状态。
@@ -61,7 +70,8 @@ public sealed class ClickEngine
                 for (int index = 0; index < targets.Length; index++)
                 {
                     token.ThrowIfCancellationRequested();
-                    output.Click(snapshot.Button, snapshot.Kind, targets[index]);
+                    // 2026/11/16 修改：取消贯穿单次输出，未完成的双击抛出取消时不增加动作及轮数。
+                    output.Click(snapshot.Button, snapshot.Kind, targets[index], token);
                     Interlocked.Increment(ref completedClicks);
                     bool roundCompleted = index == targets.Length - 1;
                     if (roundCompleted) Interlocked.Increment(ref completedRounds);

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+文件：app.manifest
+描述：为 Windows 桌面程序声明所需的启动权限。
+版本：v1.0
+日期：2026/11/23
+历史：v1.0 2026/11/23 安装版与便携版通过标准 UAC 请求管理员权限。
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" name="MouseClick.App" />
+  <!-- 2026/11/23 新增：交由 Windows 在进程启动前处理提权，取消 UAC 即取消本次启动。 -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>

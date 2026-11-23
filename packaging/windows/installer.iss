@@ -1,8 +1,9 @@
 ﻿; 文件：installer.iss
 ; 描述：当前用户中文安装、快捷方式、升级与卸载入口。
-; 版本：v1.0
-; 日期：2026/11/15
-; 历史：v1.0 2026/11/15 新增钰宇鼠标连点器安装版。
+; 版本：v1.1
+; 日期：2026/11/23
+; 历史：v1.1 2026/11/23 安装后使用 Windows 外壳启动需要管理员权限的主程序。
+; v1.0 2026/11/15 新增钰宇鼠标连点器安装版。
 
 ; 2026/11/15 新增：版本、源文件和输出目录由 scripts/release.ps1 显式提供。
 #ifndef AppVersion
@@ -76,8 +77,8 @@ Name: "{group}\卸载{#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; 2026/11/15 新增：正常安装完成可选择运行；静默验收不自动启动程序。
-Filename: "{app}\{#AppExe}"; Description: "运行{#AppName}"; Flags: nowait postinstall skipifsilent unchecked
+; 2026/11/23 修改：安装仍按当前用户执行；勾选运行时经外壳按 EXE 清单请求 UAC，静默安装不启动。
+Filename: "{app}\{#AppExe}"; Description: "运行{#AppName}"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
 [Code]
 // 2026/11/15 新增：安装版不得覆盖便携目录，避免错误复用便携配置。

@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.10
+// 版本：v1.11
 // 日期：2026/11/23
 // 历史：
+// v1.11 2026/11/23 移动选区时保留原生列表的 Shift 连选起点。
 // v1.10 2026/11/23 支持批量移动和移除坐标，删除后自动选中相邻行。
 // v1.9 2026/11/23 按位置模式排列坐标输入、屏幕选点和列表操作。
-// v1.8 2026/11/23 区分运行状态图标与标题，停止后恢复窗口，并支持选择 F8 启停。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -481,24 +481,30 @@ public sealed class MainForm : Form
         next.EnsureVisible();
     }
 
-    // 2026/11/23 修改：按移动方向依次与相邻未选行交换，到达边界的选区留在原位。
+    // 2026/11/23 修改：把相邻未选行挪到选区另一端，让原生控件保留选中行、焦点与 Shift 连选起点。
     private void MoveSelectedPoints(int direction)
     {
-        var selected = _points.SelectedItems.Cast<ListViewItem>().OrderBy(item => item.Index).ToArray();
-        if (selected.Length == 0) return;
-        if (direction > 0) Array.Reverse(selected);
-        var focus = _points.FocusedItem is { Selected: true } current ? current : selected[0];
+        if (_points.SelectedItems.Count == 0) return;
+        var focus = _points.FocusedItem is { Selected: true } current ? current : _points.SelectedItems[0];
+        int count = _points.Items.Count;
 
         _points.BeginUpdate();
         try
         {
-            foreach (var item in selected)
+            // 上移从第二行向下扫描，下移从倒数第二行向上扫描。
+            int row = direction < 0 ? 1 : count - 2;
+            while (row >= 0 && row < count)
             {
-                int next = item.Index + direction;
-                if (next < 0 || next >= _points.Items.Count || _points.Items[next].Selected) continue;
-                _points.Items.Remove(item);
-                _points.Items.Insert(next, item);
-                item.Selected = true;
+                var neighbor = _points.Items[row + direction];
+                if (_points.Items[row].Selected && !neighbor.Selected)
+                {
+                    int end = row - direction;
+                    while (end >= 0 && end < count && _points.Items[end].Selected) end -= direction;
+                    row = end + direction;
+                    _points.Items.Remove(neighbor);
+                    _points.Items.Insert(row, neighbor);
+                }
+                row -= direction;
             }
             RenumberPoints();
         }

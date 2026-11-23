@@ -1,11 +1,11 @@
 // 文件：MainFormSettingsRegressionTests.cs
 // 描述：在隐藏主窗体中验证时间、快捷键和坐标设置的布局与保存。
-// 版本：v1.4
+// 版本：v1.5
 // 日期：2026/11/23
 // 历史：
+// v1.5 2026/11/23 验证移动后 Shift 按原连选起点扩展选区。
 // v1.4 2026/11/23 验证多选移动、删除后选中相邻坐标及列表保存顺序。
 // v1.3 2026/11/23 新增三种位置模式的按钮布局、手动追加和切换保存回归。
-// v1.2 2026/11/23 覆盖新增 F8 和所有已有启停键的配置回读。
 
 using System.Globalization;
 using System.Reflection;
@@ -32,7 +32,10 @@ internal static class MainFormSettingsRegressionTests
             ("单点同行选点，多点在列表上方添加，切换后保留位置", CheckPositionModes),
             // 2026/11/23 新增：验证真实列表按钮完成删除、成组移动及保存后的选中项与排序。
             ("删除单行或多行后选中下一行，删除末行后选中前一行", CheckRemovePoints),
-            ("多选坐标按组上下移动，保留相对顺序、选中项和边界", CheckMovePoints)
+            ("多选坐标按组上下移动，保留相对顺序、选中项和边界", CheckMovePoints),
+            // 2026/11/23 新增：离散选区与连续选区均按移动前的原生起点继续扩选。
+            ("离散多选上移后，Shift 从原焦点继续选取", () => CheckShiftAfterMove([3, 5], 3, 3, [3, 2])),
+            ("连续多选上移后，Shift 从原起点跨过焦点继续选取", () => CheckShiftAfterMove([2, 3, 4], 2, 4, [2, 3, 4, 1]))
         ];
         int failures = 0;
         foreach (var item in cases)
@@ -111,6 +114,47 @@ internal static class MainFormSettingsRegressionTests
         CheckPointEdit("下移相邻及分散行", down, [2, 3, 5], [1, 4, 2, 3, 6, 5], [2, 3, 5]);
         CheckPointEdit("触顶选区和可上移行", up, [1, 2, 5], [1, 2, 3, 5, 4, 6], [1, 2, 5]);
         CheckPointEdit("触底选区和可下移行", down, [2, 5, 6], [1, 3, 2, 4, 5, 6], [2, 5, 6]);
+    }
+
+    // 2026/11/23 新增：将 Shift+向下仅发给隐藏列表，检查系统选择标记以及实际扩选结果。
+    private static void CheckShiftAfterMove(int[] selection, int anchorId, int focusId, int[] extendedSelection)
+    {
+        var points = Enumerable.Range(1, 6).Select(id => new ClickPoint(id, -id)).ToArray();
+        var initial = new ClickSettings { Mode = TargetMode.Sequence, Points = points };
+        WithHiddenForm(initial, form =>
+        {
+            ListView list = Find<ListView>(form, "PointList");
+            Button up = Find<Button>(form, "MovePointUpButton");
+            WithPositionLayout(form, () =>
+            {
+                foreach (int id in selection) list.Items[id - 1].Selected = true;
+                ListViewItem anchor = list.Items[anchorId - 1];
+                anchor.Selected = true;
+                list.Items[focusId - 1].Focused = true;
+                const uint getSelectionMark = 0x1042;
+                int ReadAnchor() => (int)NativeMethods.SendMessage(list.Handle, getSelectionMark, 0, 0);
+                Check(ReadAnchor() == anchor.Index, "移动前未建立预期的 Shift 连选起点。");
+
+                up.PerformClick();
+                int actualAnchor = ReadAnchor();
+                var saved = new byte[256];
+                Check(NativeMethods.GetKeyboardState(saved), "读取测试线程键盘状态失败。");
+                var shift = new byte[256];
+                shift[(int)Keys.ShiftKey] = shift[(int)Keys.LShiftKey] = 0x80;
+                try
+                {
+                    Check(NativeMethods.SetKeyboardState(shift), "测试线程无法设置 Shift 状态。");
+                    const uint keyDown = 0x0100, keyUp = 0x0101;
+                    NativeMethods.SendMessage(list.Handle, keyDown, (int)Keys.Down, 1);
+                    NativeMethods.SendMessage(list.Handle, keyUp, (int)Keys.Down, unchecked((int)0xC0000001));
+                }
+                finally { Check(NativeMethods.SetKeyboardState(saved), "恢复测试线程的键盘状态失败。"); }
+
+                int[] actual = list.SelectedItems.Cast<ListViewItem>().Select(item => ((ClickPoint)item.Tag!).X).ToArray();
+                Check(actualAnchor == anchor.Index && actual.SequenceEqual(extendedSelection),
+                    $"Shift 起点预期第 {anchor.Index + 1} 行，实际第 {actualAnchor + 1} 行。续选预期 [{string.Join(",", extendedSelection)}]，实际 [{string.Join(",", actual)}]。");
+            });
+        });
     }
 
     // 2026/11/23 新增：用 X 坐标标识原始行，核对实际列表的显示、选中状态，以及退出后读取的配置。

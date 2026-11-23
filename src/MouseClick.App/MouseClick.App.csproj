@@ -15,6 +15,8 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../assets/icons/mouse.ico" LogicalName="MouseClick.AppIcon.ico" />
+    <!-- 2026/11/23 新增：通知区与任务栏在连点期间使用独立的播放标志。 -->
+    <EmbeddedResource Include="../../assets/icons/running.ico" LogicalName="MouseClick.RunningIcon.ico" />
     <Content Include="../../assets/icons/LICENSE.CC0-1.0.txt" Link="图标许可.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="../../assets/icons/SOURCE.md" Link="图标来源.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <InternalsVisibleTo Include="MouseClick.WindowsTests" />

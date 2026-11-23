@@ -1,8 +1,9 @@
 // 文件：TrayRegressionTests.cs
 // 描述：在隐藏主窗体中验证关闭选择、托盘偏好持久化及退出生命周期。
-// 版本：v1.0
-// 日期：2026/11/16
+// 版本：v1.1
+// 日期：2026/11/23
 // 历史：
+// v1.1 2026/11/23 验证托盘及任务栏在运行和停止时切换图标与状态说明。
 // v1.0 2026/11/16 新增无桌面输入、无真实托盘图标的关闭行为回归。
 
 using System.Reflection;
@@ -152,16 +153,29 @@ internal static class TrayRegressionTests
         SettingsStore store = CreateStore(WindowCloseBehavior.MinimizeToTray);
         using var cancellation = new CancellationTokenSource();
         using var form = CreateHiddenForm(store, () => throw new InvalidOperationException("记住托盘偏好后不应询问。"));
+        // 2026/11/23 新增：从通知区组件读取两种可见状态，覆盖任务栏最小化时的标题与图标。
+        var tray = typeof(MainForm).GetField("_tray", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(form) as NotifyIcon
+            ?? throw new InvalidOperationException("主窗体缺少托盘组件。");
+        Icon idleIcon = tray.Icon ?? throw new InvalidOperationException("主窗体缺少停止状态图标。");
+        Check(form.Icon == idleIcon && tray.Text == form.Text && tray.Text.EndsWith("已停止", StringComparison.Ordinal),
+            "首次显示前必须初始化托盘及窗口的停止状态。");
         SetCancellation(form, cancellation);
         try
         {
             form.Close();
             AssertInTray(form);
             Check(!cancellation.IsCancellationRequested, "最小化到托盘不能取消正在运行的令牌。");
+            Check(tray.Icon is not null && tray.Icon != idleIcon && form.Icon == tray.Icon &&
+                tray.Text == form.Text && tray.Text.EndsWith("连点中", StringComparison.Ordinal),
+                "运行时应切换托盘与窗口图标，文字应提示连点中。");
         }
         finally
         {
             SetCancellation(form, null);
+            // 2026/11/23 新增：以同一空闲入托盘入口检查图标和文字已切回。
+            form.Close();
+            Check(tray.Icon == idleIcon && form.Icon == idleIcon && tray.Text == form.Text &&
+                tray.Text.EndsWith("已停止", StringComparison.Ordinal), "结束后应恢复停止图标与说明。");
             form.RequestExit();
         }
         Check(form.IsDisposed, "模拟运行测试结束后必须释放隐藏窗体。");

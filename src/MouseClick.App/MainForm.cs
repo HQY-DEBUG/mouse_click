@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.7
-// 日期：2026/11/16
+// 版本：v1.8
+// 日期：2026/11/23
 // 历史：
+// v1.8 2026/11/23 区分运行状态图标与标题，停止后恢复窗口，并支持选择 F8 启停。
 // v1.7 2026/11/16 启动成功后先隐藏到托盘，托盘启动或运行失败时显示错误。
 // v1.6 2026/11/16 新增托盘后台运行、关闭询问和可修改的记忆偏好。
-// v1.5 2026/11/15 时间输入及提示改为秒，保留毫秒配置兼容性。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -13,10 +13,17 @@ namespace MouseClick.App;
 
 public sealed class MainForm : Form
 {
+    // 2026/11/23 新增：窗口标题与托盘提示使用相同的产品名和运行状态。
+    private const string ProductTitle = "钰宇鼠标连点器";
+    private readonly Icon _idleIcon;
+    private readonly Icon _runningIcon;
+    private bool _restoreAfterRun;
     private readonly ComboBox _button = Ui.Choice("鼠标左键", "鼠标右键", "鼠标中键");
     private readonly ComboBox _kind = Ui.Choice("单击", "双击");
     private readonly ComboBox _mode = Ui.Choice("跟随鼠标当前位置", "固定一个位置", "多个位置顺序循环");
-    private readonly ComboBox _shortcut = Ui.Choice("F6", "F9", "F10");
+    // 2026/11/23 修改：直接从可保存的虚拟键生成选项和显示名称。
+    private readonly ComboBox _shortcut = Ui.Choice(ClickSettings.ToggleVirtualKeys.ToArray()
+        .Select(key => ((Keys)key).ToString()).ToArray());
     // 2026/11/15 修改：界面以秒输入，范围和默认实际时长与既有毫秒配置一致。
     private readonly NumericUpDown _interval = Ui.Seconds(0.001m, 86400m, 0.1m, "IntervalInput");
     private readonly NumericUpDown _delay = Ui.Seconds(0m, 3600m, 1m, "DelayInput");
@@ -78,16 +85,10 @@ public sealed class MainForm : Form
         _engine = new ClickEngine(output);
         _promptForClose = promptForClose;
         _enableTrayIcon = enableTrayIcon;
-        // 2026/11/15 新增：窗口及任务栏使用嵌入式图标，释放窗体时一并释放图标副本。
-        using (Stream iconStream = typeof(MainForm).Assembly.GetManifestResourceStream("MouseClick.AppIcon.ico")!)
-        using (var sourceIcon = new Icon(iconStream))
-        {
-            var windowIcon = (Icon)sourceIcon.Clone();
-            Icon = windowIcon;
-            Disposed += (_, _) => windowIcon.Dispose();
-        }
-        // 2026/11/15 修改：窗口标题采用用户指定的软件名称，保留既有设置保存位置。
-        Text = "钰宇鼠标连点器";
+        // 2026/11/23 修改：每个窗体只加载一次两种图标，在托盘图标和原生窗口都释放后处置副本。
+        _idleIcon = LoadIcon("MouseClick.AppIcon.ico");
+        _runningIcon = LoadIcon("MouseClick.RunningIcon.ico");
+        Disposed += (_, _) => { _idleIcon.Dispose(); _runningIcon.Dispose(); };
         Name = "MouseClickMainForm";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(960, 760);
@@ -108,6 +109,15 @@ public sealed class MainForm : Form
             RegisterHotkeys();
             if (_loadWarning is not null) ShowStatus(_loadWarning, true);
         };
+    }
+
+    // 2026/11/23 新增：从程序集读取图标并复制，使其使用期限独立于资源流。
+    private static Icon LoadIcon(string name)
+    {
+        using Stream stream = typeof(MainForm).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException("程序缺少图标资源：" + name);
+        using var icon = new Icon(stream);
+        return (Icon)icon.Clone();
     }
 
     // 2026/11/15 新增：两栏设置与坐标列表布局，底部始终保留停止操作。
@@ -286,7 +296,8 @@ public sealed class MainForm : Form
         _repeat.Value = settings.RepeatCount;
         _x.Value = settings.FixedPoint.X;
         _y.Value = settings.FixedPoint.Y;
-        _shortcut.SelectedIndex = settings.ToggleHotkey == 0x78 ? 1 : settings.ToggleHotkey == 0x79 ? 2 : 0;
+        // 2026/11/23 修改：用保存的虚拟键定位选项，既有 F9/F10 不受新增 F8 的位置影响。
+        _shortcut.SelectedIndex = ClickSettings.ToggleVirtualKeys.IndexOf(settings.ToggleHotkey);
         foreach (var point in settings.Points) AddPoint(point);
     }
 
@@ -301,7 +312,8 @@ public sealed class MainForm : Form
         RepeatCount = (int)_repeat.Value,
         FixedPoint = new ClickPoint((int)_x.Value, (int)_y.Value),
         Points = _points.Items.Cast<ListViewItem>().Select(item => (ClickPoint)item.Tag!).ToArray(),
-        ToggleHotkey = _shortcut.SelectedIndex == 1 ? 0x78 : _shortcut.SelectedIndex == 2 ? 0x79 : 0x75,
+        // 2026/11/23 修改：界面与注册、保存均使用相同的虚拟键值。
+        ToggleHotkey = ClickSettings.ToggleVirtualKeys[_shortcut.SelectedIndex],
         // 2026/11/16 新增：保存点击参数时同时保留关闭偏好。
         CloseBehavior = _closeBehavior
     };
@@ -332,6 +344,8 @@ public sealed class MainForm : Form
         }
         _cancellation = new CancellationTokenSource();
         var token = _cancellation.Token;
+        // 2026/11/23 新增：正常结束或用户停止时恢复窗口；系统关机可单独禁止本轮恢复。
+        _restoreAfterRun = true;
         SetRunning(true);
         // 2026/11/15 修改：状态提示使用相同秒单位，避免输入与执行说明混用单位。
         ShowStatus($"运行中 · 启动延时 {settings.StartDelayMilliseconds / 1000m:0.###} s，按 {_hotkeys.StopHotkeyText} 随时停止。");
@@ -354,6 +368,8 @@ public sealed class MainForm : Form
                 SetRunning(false);
                 RefreshCounts();
                 if (_closeAfterStop) Close();
+                // 2026/11/23 新增：仅在引擎结束后显示结果；正在显示的模态窗口继续由其所有者管理。
+                else if (_restoreAfterRun && !_closePromptOpen && !_preferencesOpen) RestoreFromTray();
             }
         }
     }
@@ -398,7 +414,8 @@ public sealed class MainForm : Form
         _status.ForeColor = error ? Ui.Danger : Ui.Accent;
         _status.AccessibleDescription = text;
         // 2026/11/16 新增：托盘中启动或运行失败时显示原因，避免快捷键已响应却看起来毫无反应。
-        if (error && IsInTray) RestoreFromTray();
+        // 2026/11/23 修改：启动前的错误立即显示，运行期间的错误在清理结束、计数刷新后显示。
+        if (error && IsInTray && _cancellation is null) RestoreFromTray();
     }
 
     // 2026/11/15 新增：点选层隐藏主窗口，结束选择后恢复窗口及列表。
@@ -470,8 +487,8 @@ public sealed class MainForm : Form
     // 2026/11/16 新增：窗口和托盘使用同一套启停入口，托盘显式退出不受记忆偏好影响。
     private void BuildTray()
     {
-        _tray.Icon = Icon;
-        _tray.Text = Text;
+        // 2026/11/23 修改：在首次显示托盘图标或窗口前初始化已停止状态。
+        UpdateTray();
         _tray.ContextMenuStrip = _trayMenu;
         _tray.DoubleClick += (_, _) => RestoreFromTray();
         _trayMenu.Items.Add("显示主窗口", null, (_, _) => RestoreFromTray());
@@ -519,7 +536,11 @@ public sealed class MainForm : Form
         _trayToggle.Text = running ? "停止连点" : "开始连点 · " + _shortcut.Text;
         _trayToggle.Enabled = running || (_hotkeys.CanStop && _picker is null && !_exitRequested && !_closePromptOpen && !_preferencesOpen);
         _trayStop.Enabled = running;
-        _tray.Text = Text + (running ? " · 连点中" : " · 已停止");
+        // 2026/11/23 修改：通知区及任务栏都区分绿底播放图标和蓝紫指针，标题与悬停文字同步。
+        Icon stateIcon = running ? _runningIcon : _idleIcon;
+        if (Icon != stateIcon) Icon = stateIcon;
+        if (_tray.Icon != stateIcon) _tray.Icon = stateIcon;
+        Text = _tray.Text = ProductTitle + (running ? " · 连点中" : " · 已停止");
     }
 
     // 2026/11/16 新增：设置可随时改回询问，保存失败回滚内存偏好并明确报告。
@@ -581,6 +602,8 @@ public sealed class MainForm : Form
         // 2026/11/16 新增：关机询问阶段停止输入但不锁死退出状态，用户取消关机后仍可使用。
         if (e.CloseReason == CloseReason.WindowsShutDown)
         {
+            // 2026/11/23 新增：关机查询返回后才收到取消完成通知，也应保持当前窗口状态。
+            _restoreAfterRun = false;
             bool previousExit = _exitRequested;
             _exitRequested = true;
             try

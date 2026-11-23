@@ -1,8 +1,9 @@
 // 文件：MainFormSettingsRegressionTests.cs
-// 描述：在隐藏主窗体中验证秒制小数输入与既有毫秒配置之间的加载、读取和保存。
-// 版本：v1.1
-// 日期：2026/11/16
+// 描述：在隐藏主窗体中验证时间与快捷键配置的加载、读取和保存。
+// 版本：v1.2
+// 日期：2026/11/23
 // 历史：
+// v1.2 2026/11/23 覆盖新增 F8 和所有已有启停键的配置回读。
 // v1.1 2026/11/16 清理改用显式退出，避免默认关闭询问干扰隐藏设置回归。
 // v1.0 2026/11/15 新增旧配置兼容、小数回存、精度与上下限及整数控件回归。
 
@@ -24,7 +25,9 @@ internal static class MainFormSettingsRegressionTests
             ("默认间隔和延时按秒显示", CheckDefaults),
             ("小数秒回存为毫秒且整数设置不变", CheckFractionalRoundTrip),
             ("秒制输入上下限保留原时长范围", CheckBoundaries),
-            ("超过三位的小数按显示精度执行和保存", CheckDisplayedPrecision)
+            ("超过三位的小数按显示精度执行和保存", CheckDisplayedPrecision),
+            // 2026/11/23 新增：独立配置检查新增选项，避免旧快捷键随选项索引变化。
+            ("四种启停键加载、显示和回存一致", CheckToggleHotkeys)
         ];
         int failures = 0;
         foreach (var item in cases)
@@ -40,8 +43,19 @@ internal static class MainFormSettingsRegressionTests
                 Console.Error.WriteLine($"失败：{item.Name} — {exception.GetType().Name}: {exception.Message}");
             }
         }
-        Console.WriteLine($"主窗体时间设置回归：{cases.Length - failures}/{cases.Length} 项通过。");
+        Console.WriteLine($"主窗体设置回归：{cases.Length - failures}/{cases.Length} 项通过。");
         return failures;
+    }
+
+    // 2026/11/23 新增：从配置加载每个合法键，核对显示项和退出后实际保存的虚拟键。
+    private static void CheckToggleHotkeys()
+    {
+        foreach (Keys key in new[] { Keys.F6, Keys.F8, Keys.F9, Keys.F10 })
+        {
+            ClickSettings saved = WithHiddenForm(new ClickSettings { ToggleHotkey = (int)key }, form =>
+                Check(Find<ComboBox>(form, "ShortcutChoice").Text == key.ToString(), $"未选中保存的 {key}。"));
+            Check(saved.ToggleHotkey == (int)key, $"关闭后 {key} 应原样回存。");
+        }
     }
 
     // 2026/11/15 新增：捕获直接把旧毫秒值显示为秒或在关闭保存时重复换算的错误。

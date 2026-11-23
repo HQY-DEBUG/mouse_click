@@ -1,11 +1,11 @@
 // 文件：MainFormSettingsRegressionTests.cs
 // 描述：在隐藏主窗体中验证时间、快捷键和坐标设置的布局与保存。
-// 版本：v1.6
+// 版本：v1.7
 // 日期：2026/11/23
 // 历史：
+// v1.7 2026/11/23 验证原生数字微调、方向键和箭头状态的实际绘制。
 // v1.6 2026/11/23 验证首次进入循环模式时坐标输入和操作按钮的真实排布。
 // v1.5 2026/11/23 验证移动后 Shift 按原连选起点扩展选区。
-// v1.4 2026/11/23 验证多选移动、删除后选中相邻坐标及列表保存顺序。
 
 using System.Globalization;
 using System.Reflection;
@@ -25,6 +25,8 @@ internal static class MainFormSettingsRegressionTests
             ("默认间隔和延时按秒显示", CheckDefaults),
             ("小数秒回存为毫秒且整数设置不变", CheckFractionalRoundTrip),
             ("秒制输入上下限保留原时长范围", CheckBoundaries),
+            // 2026/11/23 新增：实际子窗口接收鼠标、方向键消息后应按原设置的步进与边界更新数值。
+            ("数字箭头和方向键保持步进及边界", CheckNumberInput),
             ("超过三位的小数按显示精度执行和保存", CheckDisplayedPrecision),
             // 2026/11/23 新增：独立配置检查新增选项，避免旧快捷键随选项索引变化。
             ("四种启停键加载、显示和回存一致", CheckToggleHotkeys),
@@ -56,6 +58,70 @@ internal static class MainFormSettingsRegressionTests
         }
         Console.WriteLine($"主窗体设置回归：{cases.Length - failures}/{cases.Length} 项通过。");
         return failures;
+    }
+
+    // 2026/11/23 新增：向隐藏测试面板中的按钮和编辑框定向发送消息，不移动系统光标。
+    private static void CheckNumberInput()
+    {
+        WithHiddenForm(new ClickSettings { Mode = TargetMode.Fixed }, form =>
+        {
+            var seconds = Find<NumericUpDown>(form, "IntervalInput");
+            var rounds = Find<NumericUpDown>(form, "RepeatInput");
+            var x = Find<NumericUpDown>(form, "XInput");
+            WithPositionLayout(form, () =>
+            {
+                static void ClickArrow(NumericUpDown field, bool up)
+                {
+                    var buttons = field.Controls.Cast<Control>().Single(child => child is not TextBoxBase);
+                    int y = up ? buttons.Height / 4 : buttons.Height * 3 / 4;
+                    int location = (y << 16) | (buttons.Width / 2);
+                    const uint leftDown = 0x0201, leftUp = 0x0202;
+                    NativeMethods.SendMessage(buttons.Handle, leftDown, 1, location);
+                    NativeMethods.SendMessage(buttons.Handle, leftUp, 0, location);
+                }
+
+                seconds.Value = 0.125m;
+                ClickArrow(seconds, true);
+                Check(seconds.Value == 0.225m, "秒数向上应增加 0.100 秒，并保留原有三位小数。");
+                ClickArrow(seconds, false);
+                Check(seconds.Value == 0.125m, "秒数向下应恢复 0.125 秒。");
+                rounds.Value = 0;
+                ClickArrow(rounds, false);
+                Check(rounds.Value == 0, "轮数为 0 时向下不能变成负数。");
+                if (!SystemInformation.HighContrast)
+                    CheckStepperFeedback(rounds.Controls.Cast<Control>().Single(child => child is not TextBoxBase));
+                x.Value = -2;
+                var editor = x.Controls.OfType<TextBoxBase>().Single();
+                const uint keyDown = 0x0100, keyUp = 0x0101;
+                NativeMethods.SendMessage(editor.Handle, keyDown, (int)Keys.Up, 1);
+                NativeMethods.SendMessage(editor.Handle, keyUp, (int)Keys.Up, unchecked((int)0xC0000001));
+                Check(x.Value == -1, "坐标编辑框内按 ↑ 应将 -2 增至 -1。");
+            });
+        });
+    }
+
+    // 2026/11/23 新增：对实际子窗口投递消息，比较上半区空白处的前后绘图，验证悬停、按下与松手。
+    private static void CheckStepperFeedback(Control buttons)
+    {
+        int halfLocation = ((buttons.Height / 4) << 16) | (buttons.Width / 2);
+        const uint move = 0x0200, down = 0x0201, up = 0x0202;
+        Color Sample()
+        {
+            using var bitmap = new Bitmap(buttons.Width, buttons.Height);
+            buttons.DrawToBitmap(bitmap, buttons.ClientRectangle);
+            return bitmap.GetPixel(buttons.Width / 4, buttons.Height / 6);
+        }
+
+        NativeMethods.SendMessage(buttons.Handle, move, 0, (buttons.Height << 16) | buttons.Width);
+        Color idle = Sample();
+        NativeMethods.SendMessage(buttons.Handle, move, 0, halfLocation);
+        Color hover = Sample();
+        NativeMethods.SendMessage(buttons.Handle, down, 1, halfLocation);
+        Color pressed;
+        try { pressed = Sample(); }
+        finally { NativeMethods.SendMessage(buttons.Handle, up, 0, halfLocation); }
+        Check(idle != hover && pressed != hover && pressed != idle && Sample() == hover,
+            $"箭头应显示不同的常态、悬停、按下颜色，并在松手后恢复悬停。实测 {idle}/{hover}/{pressed}。");
     }
 
     // 2026/11/23 新增：借用无顶层窗口的面板布局真实控件，让 Visible 和 PerformClick 按当前模式生效。

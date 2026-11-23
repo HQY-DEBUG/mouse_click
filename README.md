@@ -4,16 +4,16 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 下载
 
-本版：**v1.4.0**。下载入口：[GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.4.0)。
+当前版本为 **v1.4.1**。[GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.4.1)
 
 | 发行文件 | 用途 |
 | --- | --- |
-| [YuyuMouseClick-v1.4.0-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.0/YuyuMouseClick-v1.4.0-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
-| [YuyuMouseClick-v1.4.0-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.0/YuyuMouseClick-v1.4.0-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
-| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.0/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
-| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.0/release-manifest.json) | 版本、源码提交及发行产物信息 |
+| [YuyuMouseClick-v1.4.1-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.1/YuyuMouseClick-v1.4.1-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
+| [YuyuMouseClick-v1.4.1-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.1/YuyuMouseClick-v1.4.1-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
+| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.1/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
+| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.4.1/release-manifest.json) | 版本、源码提交及发行产物信息 |
 
-发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示；请核对下载来源及校验值。详见 [v1.4.0 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/docs/releases/v1.4.0.md) 和 [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/CHANGELOG.md)。
+发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示，请核对下载来源及校验值。[v1.4.1 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/docs/releases/v1.4.1.md) · [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/CHANGELOG.md)
 
 ## 功能
 
@@ -32,15 +32,15 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 使用
 
-安装版运行 `YuyuMouseClick-v1.4.0-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
+安装版运行 `YuyuMouseClick-v1.4.1-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
 
 两个版本的主程序启动时都默认请求管理员权限。若 Windows 显示用户账户控制提示，确认后即可启动。
 
 便携版先完整解压 ZIP，再双击其中的 `钰宇鼠标连点器.exe`；请保留同目录的 `portable.flag`，不要直接从 ZIP 预览中启动。
 
 1. 设置按键、单击/双击、点击间隔和启动延时，时间单位均为秒（s），支持三位小数，例如 0.5、1.25、0.001。
-2. 选择点击位置模式。多位置模式点击“屏幕点选”，在目标位置依次左键点击；右键或 Esc 完成选择。
-3. 列表每一行就是一个位置，添加多少行就循环多少个位置。可选中行上移、下移、移除，也可在 X/Y 输入坐标后点击“添加坐标”。
+2. 选择点击位置模式。“固定一个位置”可在 X、Y 旁点击“选点”，再点击屏幕上的目标。“多个位置顺序循环”可在列表上方输入 X、Y 后点击“添加坐标”，或点击“屏幕点选”依次左键选取多个位置，用右键或 Esc 结束点选。两种模式都支持 F7 取点。
+3. 多位置列表按从上到下的顺序执行。按住 Ctrl 点击可多选不相邻的行，按住 Shift 点击可选中一段连续的行，再点击“上移”“下移”或“移除”。移除后会选中从首个被移除位置往后的第一条剩余坐标，若已删到末尾则选中上一条。
 4. 设置重复轮数；`0` 为持续运行。点击“开始连点”或按当前全局快捷键（默认 F6，可选 F8/F9/F10）启动；启动成功后主窗口自动最小化到托盘。托盘菜单启动采用相同行为。
 5. 再按启停键、按 Ctrl+F8 或点击“停止”结束。停止后主窗口会自动显示，方便查看动作数和轮数。点击主窗口 × 时，默认询问“最小化到托盘”或“退出”；也可取消关闭。最小化到托盘后继续运行，退出会先停止连点。
 
@@ -86,14 +86,14 @@ powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.4.0/`；同版本输出目录已存在时拒绝覆盖，可用 `-OutputRoot` 指定其他输出根目录。源码仓库不包含大型 .NET 自包含二进制；下载成品请使用上方 Release 入口。完整发布步骤见 [发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/docs/releasing.md)。
+源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.4.1/`。同版本输出目录已存在时，可用 `-OutputRoot` 指定其他输出根目录。发行成品可从上方 Release 入口下载。[发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/docs/releasing.md)
 
-本版的托盘状态、停止后显示主窗口、F8 启停和管理员启动方式见[验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.4.0.md)。上一版的四窗口点击和输入兼容性验收见[v1.3.2 记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.2.md)。
+v1.4.0 记录了托盘状态、停止后弹出主窗口、F8 启停和管理员启动方式，v1.3.2 记录了四窗口点击和输入兼容性的测试结果。[v1.4.0 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.4.0.md) · [v1.3.2 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.2.md)
 
 托盘驻留期间，连点器会在真实桌面上点击指定位置。请保持目标窗口可见。
 
 ## 开发记录
 
-程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/assets/icons/SOURCE.md)。
+程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/assets/icons/SOURCE.md)。
 
-按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.0/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。
+按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.4.1/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。

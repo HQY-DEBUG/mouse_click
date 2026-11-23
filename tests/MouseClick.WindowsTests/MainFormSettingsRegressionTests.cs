@@ -1,11 +1,11 @@
 // 文件：MainFormSettingsRegressionTests.cs
-// 描述：在隐藏主窗体中验证时间与快捷键配置的加载、读取和保存。
-// 版本：v1.2
+// 描述：在隐藏主窗体中验证时间、快捷键和坐标设置的布局与保存。
+// 版本：v1.3
 // 日期：2026/11/23
 // 历史：
+// v1.3 2026/11/23 新增三种位置模式的按钮布局、手动追加和切换保存回归。
 // v1.2 2026/11/23 覆盖新增 F8 和所有已有启停键的配置回读。
 // v1.1 2026/11/16 清理改用显式退出，避免默认关闭询问干扰隐藏设置回归。
-// v1.0 2026/11/15 新增旧配置兼容、小数回存、精度与上下限及整数控件回归。
 
 using System.Globalization;
 using System.Reflection;
@@ -27,7 +27,9 @@ internal static class MainFormSettingsRegressionTests
             ("秒制输入上下限保留原时长范围", CheckBoundaries),
             ("超过三位的小数按显示精度执行和保存", CheckDisplayedPrecision),
             // 2026/11/23 新增：独立配置检查新增选项，避免旧快捷键随选项索引变化。
-            ("四种启停键加载、显示和回存一致", CheckToggleHotkeys)
+            ("四种启停键加载、显示和回存一致", CheckToggleHotkeys),
+            // 2026/11/23 新增：通过实际布局和按钮检查三种位置模式。
+            ("单点同行选点，多点在列表上方添加，切换后保留位置", CheckPositionModes)
         ];
         int failures = 0;
         foreach (var item in cases)
@@ -45,6 +47,63 @@ internal static class MainFormSettingsRegressionTests
         }
         Console.WriteLine($"主窗体设置回归：{cases.Length - failures}/{cases.Length} 项通过。");
         return failures;
+    }
+
+    // 2026/11/23 新增：借用无顶层窗口的面板布局真实控件，让 Visible 和 PerformClick 按当前模式生效。
+    private static void CheckPositionModes()
+    {
+        var first = new ClickPoint(17, 25);
+        var second = new ClickPoint(-40, 82);
+        var initial = new ClickSettings { Mode = TargetMode.Fixed, FixedPoint = second, Points = [first] };
+        ClickSettings saved = WithHiddenForm(initial, form =>
+        {
+            ComboBox mode = Find<ComboBox>(form, "ModeChoice");
+            NumericUpDown x = Find<NumericUpDown>(form, "XInput");
+            NumericUpDown y = Find<NumericUpDown>(form, "YInput");
+            Button capture = Find<Button>(form, "CaptureButton");
+            Button add = Find<Button>(form, "AddPointButton");
+            ListView list = Find<ListView>(form, "PointList");
+            Control layout = form.Controls[0];
+            using var host = new Panel { Size = form.ClientSize, Font = form.Font };
+            host.Controls.Add(layout);
+            try
+            {
+                host.CreateControl();
+                Check(x.Visible && y.Visible && capture.Visible && capture.Enabled && capture.Text.Contains("F7") &&
+                    !add.Visible && !list.Visible, "固定位置应只显示坐标和选点入口。");
+                CheckBeside(y, capture, "固定位置的选点按钮");
+                mode.SelectedIndex = (int)TargetMode.Sequence;
+                Check(x.Visible && y.Visible && add.Visible && list.Visible && capture.Visible && capture.Enabled,
+                    "多点模式应显示手动输入、添加、选点与坐标列表。");
+                CheckBeside(y, add, "多点模式的添加按钮");
+                Check(add.RectangleToScreen(add.ClientRectangle).Bottom <= list.PointToScreen(Point.Empty).Y,
+                    "添加坐标应在列表上方。");
+                Check(list.Items.Count == 1, "已有一个位置的循环仍应允许添加。");
+                add.PerformClick();
+                Check(list.Items.Count == 2 && Equals(list.Items[1].Tag, second),
+                    "添加按钮应在原有位置后追加输入的坐标。");
+                mode.SelectedIndex = (int)TargetMode.Cursor;
+                Check(capture.Visible && !x.Visible && !y.Visible && !add.Visible && !list.Visible,
+                    "跟随鼠标时应保留选点入口并收起坐标编辑控件。");
+                mode.SelectedIndex = (int)TargetMode.Fixed;
+                Check(x.Value == second.X && y.Value == second.Y, "切回固定模式应保留输入坐标。");
+            }
+            finally
+            {
+                form.Controls.Add(layout);
+            }
+        });
+        Check(saved.FixedPoint == second && saved.Points.SequenceEqual([first, second]),
+            "退出后应同时保存固定位置和原有顺序的循环列表。");
+    }
+
+    // 2026/11/23 新增：比较控件实际矩形，捕获按钮因换行、重叠或行顺序错误导致的位置偏差。
+    private static void CheckBeside(Control input, Button action, string name)
+    {
+        Rectangle box = input.RectangleToScreen(input.ClientRectangle);
+        Rectangle button = action.RectangleToScreen(action.ClientRectangle);
+        Check(button.Left >= box.Right && button.Top < box.Bottom && box.Top < button.Bottom,
+            $"{name}应在 Y 坐标右侧同一行，实际坐标框 {box}、按钮 {button}。");
     }
 
     // 2026/11/23 新增：从配置加载每个合法键，核对显示项和退出后实际保存的虚拟键。

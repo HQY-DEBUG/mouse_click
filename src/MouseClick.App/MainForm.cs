@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.8
+// 版本：v1.9
 // 日期：2026/11/23
 // 历史：
+// v1.9 2026/11/23 按位置模式排列坐标输入、屏幕选点和列表操作。
 // v1.8 2026/11/23 区分运行状态图标与标题，停止后恢复窗口，并支持选择 F8 启停。
 // v1.7 2026/11/16 启动成功后先隐藏到托盘，托盘启动或运行失败时显示错误。
-// v1.6 2026/11/16 新增托盘后台运行、关闭询问和可修改的记忆偏好。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -35,6 +35,10 @@ public sealed class MainForm : Form
     private readonly Label _counts = Ui.Text("0 次动作  /  0 轮", 17, true);
     private readonly Label _pointHint = Ui.Text("");
     private readonly Label _modeHint = Ui.Text("");
+    // 2026/11/23 新增：坐标标签和多点说明随所选位置模式一起显隐。
+    private readonly Label _xLabel = Ui.Text("X");
+    private readonly Label _yLabel = Ui.Text("Y");
+    private readonly Label _sequenceHint = Ui.Text("支持负坐标。屏幕点选时，按右键或 Esc 完成。", 9);
     // 2026/11/15 修改：界面初始提示和停止按钮统一显示固定 Ctrl+F8。
     private readonly Label _emergencyHint = Ui.Text("Ctrl+F8 紧急停止  ·  0 轮表示持续点击  ·  多位置全部走完计一轮", 9);
     private readonly Button _start = Ui.Button("开始连点 · F6", true);
@@ -205,11 +209,11 @@ public sealed class MainForm : Form
         _settingsPanel.Controls.Add(table);
     }
 
-    // 2026/11/15 新增：列表长度就是循环位置数量，支持屏幕点选及手工调整。
+    // 2026/11/23 修改：坐标输入和对应操作放在列表上方，多点模式的点选与排序另起一行。
     private void BuildPositions()
     {
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8 };
-        for (var i = 0; i < 8; i++) table.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
+        for (var i = 0; i < table.RowCount; i++) table.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
         table.Controls.Add(Ui.Text("02  点击位置", 13, true), 0, 0);
         _mode.Name = "ModeChoice";
         _mode.AccessibleName = "点击位置模式";
@@ -220,8 +224,19 @@ public sealed class MainForm : Form
         _modeHint.Height = 47;
         _modeHint.Dock = DockStyle.Top;
         table.Controls.Add(_modeHint, 0, 2);
+        _x.Dock = _y.Dock = DockStyle.None;
+        _x.Width = _y.Width = 104;
+        _x.AccessibleName = "X 坐标";
+        _y.AccessibleName = "Y 坐标";
+        _xLabel.Anchor = _yLabel.Anchor = _x.Anchor = _y.Anchor = AnchorStyles.Left;
+        _xLabel.Margin = _yLabel.Margin = Padding.Empty;
+        _x.Margin = _y.Margin = new Padding(4, 0, 8, 0);
+        _add.Name = "AddPointButton";
+        _add.Margin = new Padding(0, 0, 8, 6);
         _capture.Name = "CaptureButton";
-        table.Controls.Add(Ui.Row(_capture, _up, _down, _remove), 0, 3);
+        var actions = Ui.Row(_xLabel, _x, _yLabel, _y, _add, _capture, _up, _down, _remove);
+        actions.SetFlowBreak(_add, true);
+        table.Controls.Add(actions, 0, 3);
         _points.Name = "PointList";
         _points.AccessibleName = "循环坐标列表";
         _points.Dock = DockStyle.Fill;
@@ -238,15 +253,8 @@ public sealed class MainForm : Form
         _pointHint.ForeColor = Ui.Muted;
         _pointHint.Font = new Font(Font.FontFamily, 9);
         table.Controls.Add(_pointHint, 0, 5);
-        _x.Dock = _y.Dock = DockStyle.None;
-        _x.Width = _y.Width = 104;
-        _x.AccessibleName = "X 坐标";
-        _y.AccessibleName = "Y 坐标";
-        _add.Name = "AddPointButton";
-        table.Controls.Add(Ui.Row(Ui.Text("X"), _x, Ui.Text("Y"), _y, _add), 0, 6);
-        var hint = Ui.Text("可用负坐标；屏幕点选时右键或 Esc 完成。", 9);
-        hint.ForeColor = Ui.Muted;
-        table.Controls.Add(hint, 0, 7);
+        _sequenceHint.ForeColor = Ui.Muted;
+        table.Controls.Add(_sequenceHint, 0, 6);
         _positionsPanel.Controls.Add(table);
     }
 
@@ -470,15 +478,19 @@ public sealed class MainForm : Form
         _pointHint.Text = $"共 {_points.Items.Count} 个位置  ·  顺序从上到下";
     }
 
+    // 2026/11/23 修改：固定坐标旁直接显示选点按钮，只有循环模式展示添加、排序、列表与数量。
     private void UpdateMode()
     {
         var mode = (TargetMode)_mode.SelectedIndex;
-        _points.Enabled = _add.Enabled = _remove.Enabled = _up.Enabled = _down.Enabled = mode == TargetMode.Sequence;
-        _x.Enabled = _y.Enabled = mode != TargetMode.Cursor;
+        bool sequence = mode == TargetMode.Sequence;
+        _xLabel.Visible = _x.Visible = _yLabel.Visible = _y.Visible = mode != TargetMode.Cursor;
+        _add.Visible = _up.Visible = _down.Visible = _remove.Visible = sequence;
+        _points.Visible = _pointHint.Visible = _sequenceHint.Visible = sequence;
+        _capture.Text = mode == TargetMode.Fixed ? "选点 · F7" : "屏幕点选 · F7";
         _modeHint.Text = mode switch
         {
             TargetMode.Cursor => "点击光标所在位置，运行时可随时移动鼠标。",
-            TargetMode.Fixed => "每次点击下方 X / Y 指定的位置，使用屏幕点选可快速设置。",
+            TargetMode.Fixed => "输入 X 和 Y 坐标（支持负数），或点击“选点”在屏幕上选择位置。",
             _ => "依次点击列表中的所有位置，走完后从第一个位置继续。"
         };
         RenumberPoints();

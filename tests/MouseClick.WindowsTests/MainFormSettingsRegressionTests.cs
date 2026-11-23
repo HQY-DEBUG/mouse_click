@@ -1,11 +1,11 @@
 // 文件：MainFormSettingsRegressionTests.cs
 // 描述：在隐藏主窗体中验证时间、快捷键和坐标设置的布局与保存。
-// 版本：v1.5
+// 版本：v1.6
 // 日期：2026/11/23
 // 历史：
+// v1.6 2026/11/23 验证首次进入循环模式时坐标输入和操作按钮的真实排布。
 // v1.5 2026/11/23 验证移动后 Shift 按原连选起点扩展选区。
 // v1.4 2026/11/23 验证多选移动、删除后选中相邻坐标及列表保存顺序。
-// v1.3 2026/11/23 新增三种位置模式的按钮布局、手动追加和切换保存回归。
 
 using System.Globalization;
 using System.Reflection;
@@ -30,6 +30,9 @@ internal static class MainFormSettingsRegressionTests
             ("四种启停键加载、显示和回存一致", CheckToggleHotkeys),
             // 2026/11/23 新增：通过实际布局和按钮检查三种位置模式。
             ("单点同行选点，多点在列表上方添加，切换后保留位置", CheckPositionModes),
+            // 2026/11/23 新增：覆盖坐标输入与操作按钮在首次显示时才建立窗口句柄的路径。
+            ("从跟随模式首次切到循环模式时，坐标和操作按钮保持顺序", () => CheckColdSequence(TargetMode.Cursor)),
+            ("从固定模式首次切到循环模式时，坐标和操作按钮保持顺序", () => CheckColdSequence(TargetMode.Fixed)),
             // 2026/11/23 新增：验证真实列表按钮完成删除、成组移动及保存后的选中项与排序。
             ("删除单行或多行后选中下一行，删除末行后选中前一行", CheckRemovePoints),
             ("多选坐标按组上下移动，保留相对顺序、选中项和边界", CheckMovePoints),
@@ -93,6 +96,41 @@ internal static class MainFormSettingsRegressionTests
         });
         Check(saved.FixedPoint == second && saved.Points.SequenceEqual([first, second]),
             "退出后应同时保存固定位置和原有顺序的循环列表。");
+    }
+
+    // 2026/11/23 新增：对比真实窗口控件的横向坐标、子项排列和键盘 Tab 次序。
+    private static void CheckColdSequence(TargetMode initialMode)
+    {
+        WithHiddenForm(new ClickSettings { Mode = initialMode }, form =>
+        {
+            var mode = Find<ComboBox>(form, "ModeChoice");
+            var x = Find<NumericUpDown>(form, "XInput");
+            var y = Find<NumericUpDown>(form, "YInput");
+            var row = (FlowLayoutPanel)x.Parent!;
+            var xLabel = row.Controls.OfType<Label>().Single(label => label.Text == "X");
+            var yLabel = row.Controls.OfType<Label>().Single(label => label.Text == "Y");
+            var add = Find<Button>(form, "AddPointButton");
+            Control[] inputs = [xLabel, x, yLabel, y, add];
+            Control[] actions = [Find<Button>(form, "CaptureButton"), Find<Button>(form, "MovePointUpButton"),
+                Find<Button>(form, "MovePointDownButton"), Find<Button>(form, "RemovePointButton")];
+            WithPositionLayout(form, () =>
+            {
+                Check(!add.IsHandleCreated, "循环模式的添加按钮应在首次切换时创建原生句柄。");
+                mode.SelectedIndex = (int)TargetMode.Sequence;
+                Control[] expected = [..inputs, ..actions];
+                Check(expected.All(c => c.Visible && c.IsHandleCreated), "循环模式应创建并显示全部编辑控件。");
+                bool InOrder(Control[] controls) => controls.Zip(controls.Skip(1),
+                    (left, right) => left.Right <= right.Left && left.Top < right.Bottom && right.Top < left.Bottom).All(ok => ok);
+                Check(InOrder(inputs) && InOrder(actions) && expected.SequenceEqual(row.Controls.Cast<Control>()),
+                    "首次显示时排列错误：" + string.Join(" / ", row.Controls.Cast<Control>().Select(c => $"{c.Text}@{c.Left}")));
+                Control? tab = null;
+                foreach (Control expectedTab in expected.Where(c => c.TabStop))
+                {
+                    do { tab = row.GetNextControl(tab, true); } while (tab is { TabStop: false });
+                    Check(tab == expectedTab, "Tab 顺序应与坐标及操作按钮的可见顺序一致。");
+                }
+            });
+        });
     }
 
     // 2026/11/23 新增：删除后首选首个被删位置的下一条，若没有后继则选最后一条。

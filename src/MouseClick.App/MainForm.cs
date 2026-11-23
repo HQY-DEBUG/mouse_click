@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.13
+// 版本：v1.14
 // 日期：2026/11/23
 // 历史：
+// v1.14 2026/11/23 修复首次切换模式时坐标标签与上下移按钮的排列顺序。
 // v1.13 2026/11/23 从当前 Windows 用户的本地目录加载主窗口背景。
 // v1.12 2026/11/23 重排点击参数、位置编辑和运行区，接入蓝紫界面及屏幕位置预览。
-// v1.11 2026/11/23 移动选区时保留原生列表的 Shift 连选起点。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -594,8 +594,16 @@ public sealed class MainForm : Form
     {
         var mode = (TargetMode)_mode.SelectedIndex;
         bool sequence = mode == TargetMode.Sequence;
-        _xLabel.Visible = _x.Visible = _yLabel.Visible = _y.Visible = mode != TargetMode.Cursor;
-        _add.Visible = _up.Visible = _down.Visible = _remove.Visible = sequence;
+        // 2026/11/23 修改：首次显示会创建子窗口，按从左到右的顺序设显以保持流式布局和 Tab 次序一致。
+        bool coordinates = mode != TargetMode.Cursor;
+        _xLabel.Visible = coordinates;
+        _x.Visible = coordinates;
+        _yLabel.Visible = coordinates;
+        _y.Visible = coordinates;
+        _add.Visible = sequence;
+        _up.Visible = sequence;
+        _down.Visible = sequence;
+        _remove.Visible = sequence;
         _points.Visible = _pointHint.Visible = sequence;
         _preview.Visible = !sequence;
         UpdatePositionPreview();

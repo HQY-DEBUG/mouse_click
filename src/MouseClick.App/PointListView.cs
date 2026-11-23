@@ -51,6 +51,8 @@ internal sealed class PointListView : ListView
         _darkScrollbar = null;
         SetRowHeight();
         FitColumns();
+        // WinForms 在整棵窗口树建立后会应用进程原生主题，待其完成再同步一次本列表的滚动条。
+        BeginInvoke((Action)(() => { if (IsHandleCreated && !IsDisposed) SetScrollbarTheme(refresh: true); }));
         QueueColumnFit();
     }
 
@@ -60,20 +62,19 @@ internal sealed class PointListView : ListView
         base.OnSystemColorsChanged(e);
         BackColor = Ui.Surface;
         ForeColor = Ui.Ink;
-        if (IsHandleCreated) SetScrollbarTheme();
+        if (IsHandleCreated) SetScrollbarTheme(refresh: true);
         Invalidate();
     }
 
-    private void SetScrollbarTheme()
+    private void SetScrollbarTheme(bool refresh = false)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763)) return;
         const int windowStyle = -16, verticalScroll = 0x00200000;
         bool dark = !SystemInformation.HighContrast && (GetWindowLong(Handle, windowStyle) & verticalScroll) != 0;
-        if (_darkScrollbar == dark) return;
+        if (!refresh && _darkScrollbar == dark) return;
         _darkScrollbar = dark;
         // 只有实际出现滚动条才启用其深色原生主题，普通列表的空白区保持面板本色。
-        string? theme = SystemInformation.HighContrast ? null : dark ? "DarkMode_Explorer" : "DarkMode_CFD";
-        int result = SetWindowTheme(Handle, theme, null);
+        int result = SetWindowTheme(Handle, dark ? "DarkMode_Explorer" : null, null);
         if (result < 0) Trace.TraceWarning("设置坐标列表系统滚动条主题失败，HRESULT 0x{0:X8}。", result);
     }
 

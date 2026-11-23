@@ -1,11 +1,11 @@
 // 文件：MainFormSettingsRegressionTests.cs
 // 描述：在隐藏主窗体中验证时间、快捷键和坐标设置的布局与保存。
-// 版本：v1.3
+// 版本：v1.4
 // 日期：2026/11/23
 // 历史：
+// v1.4 2026/11/23 验证多选移动、删除后选中相邻坐标及列表保存顺序。
 // v1.3 2026/11/23 新增三种位置模式的按钮布局、手动追加和切换保存回归。
 // v1.2 2026/11/23 覆盖新增 F8 和所有已有启停键的配置回读。
-// v1.1 2026/11/16 清理改用显式退出，避免默认关闭询问干扰隐藏设置回归。
 
 using System.Globalization;
 using System.Reflection;
@@ -29,7 +29,10 @@ internal static class MainFormSettingsRegressionTests
             // 2026/11/23 新增：独立配置检查新增选项，避免旧快捷键随选项索引变化。
             ("四种启停键加载、显示和回存一致", CheckToggleHotkeys),
             // 2026/11/23 新增：通过实际布局和按钮检查三种位置模式。
-            ("单点同行选点，多点在列表上方添加，切换后保留位置", CheckPositionModes)
+            ("单点同行选点，多点在列表上方添加，切换后保留位置", CheckPositionModes),
+            // 2026/11/23 新增：验证真实列表按钮完成删除、成组移动及保存后的选中项与排序。
+            ("删除单行或多行后选中下一行，删除末行后选中前一行", CheckRemovePoints),
+            ("多选坐标按组上下移动，保留相对顺序、选中项和边界", CheckMovePoints)
         ];
         int failures = 0;
         foreach (var item in cases)
@@ -63,12 +66,8 @@ internal static class MainFormSettingsRegressionTests
             Button capture = Find<Button>(form, "CaptureButton");
             Button add = Find<Button>(form, "AddPointButton");
             ListView list = Find<ListView>(form, "PointList");
-            Control layout = form.Controls[0];
-            using var host = new Panel { Size = form.ClientSize, Font = form.Font };
-            host.Controls.Add(layout);
-            try
+            WithPositionLayout(form, () =>
             {
-                host.CreateControl();
                 Check(x.Visible && y.Visible && capture.Visible && capture.Enabled && capture.Text.Contains("F7") &&
                     !add.Visible && !list.Visible, "固定位置应只显示坐标和选点入口。");
                 CheckBeside(y, capture, "固定位置的选点按钮");
@@ -87,14 +86,77 @@ internal static class MainFormSettingsRegressionTests
                     "跟随鼠标时应保留选点入口并收起坐标编辑控件。");
                 mode.SelectedIndex = (int)TargetMode.Fixed;
                 Check(x.Value == second.X && y.Value == second.Y, "切回固定模式应保留输入坐标。");
-            }
-            finally
-            {
-                form.Controls.Add(layout);
-            }
+            });
         });
         Check(saved.FixedPoint == second && saved.Points.SequenceEqual([first, second]),
             "退出后应同时保存固定位置和原有顺序的循环列表。");
+    }
+
+    // 2026/11/23 新增：删除后首选首个被删位置的下一条，若没有后继则选最后一条。
+    private static void CheckRemovePoints()
+    {
+        const string remove = "RemovePointButton";
+        CheckPointEdit("删除中间单行", remove, [3], [1, 2, 4, 5, 6], [4]);
+        CheckPointEdit("删除末行", remove, [6], [1, 2, 3, 4, 5], [5]);
+        CheckPointEdit("删除分散行", remove, [2, 4], [1, 3, 5, 6], [3]);
+        CheckPointEdit("删除全部行", remove, [1, 2, 3, 4, 5, 6], [], []);
+    }
+
+    // 2026/11/23 新增：相邻选区作为一组移动，已抵达边界的选区保留，其余选区仍可移动。
+    private static void CheckMovePoints()
+    {
+        const string up = "MovePointUpButton";
+        const string down = "MovePointDownButton";
+        CheckPointEdit("上移相邻及分散行", up, [2, 3, 5], [2, 3, 1, 5, 4, 6], [2, 3, 5]);
+        CheckPointEdit("下移相邻及分散行", down, [2, 3, 5], [1, 4, 2, 3, 6, 5], [2, 3, 5]);
+        CheckPointEdit("触顶选区和可上移行", up, [1, 2, 5], [1, 2, 3, 5, 4, 6], [1, 2, 5]);
+        CheckPointEdit("触底选区和可下移行", down, [2, 5, 6], [1, 3, 2, 4, 5, 6], [2, 5, 6]);
+    }
+
+    // 2026/11/23 新增：用 X 坐标标识原始行，核对实际列表的显示、选中状态，以及退出后读取的配置。
+    private static void CheckPointEdit(string scenario, string buttonName, int[] selected, int[] order, int[] nextSelection)
+    {
+        ClickPoint[] points = Enumerable.Range(1, 6).Select(id => new ClickPoint(id, -id)).ToArray();
+        var initial = new ClickSettings { Mode = TargetMode.Sequence, Points = points };
+        ClickSettings saved = WithHiddenForm(initial, form =>
+        {
+            ListView list = Find<ListView>(form, "PointList");
+            Button button = Find<Button>(form, buttonName);
+            WithPositionLayout(form, () =>
+            {
+                Check(list.MultiSelect, "坐标列表应允许多选。");
+                foreach (int id in selected) list.Items[id - 1].Selected = true;
+                ListViewItem focused = list.Items[selected[^1] - 1];
+                focused.Focused = true;
+                button.PerformClick();
+                var actual = list.Items.Cast<ListViewItem>().ToArray();
+                Check(actual.Select(row => ((ClickPoint)row.Tag!).X).SequenceEqual(order), scenario + "后的坐标顺序错误。");
+                Check(actual.Select(row => row.Text).SequenceEqual(Enumerable.Range(1, order.Length).Select(n => n.ToString())),
+                    scenario + "后应从 1 开始连续编号。");
+                Check(list.SelectedItems.Cast<ListViewItem>().Select(row => ((ClickPoint)row.Tag!).X).SequenceEqual(nextSelection),
+                    scenario + "后的选中坐标错误。");
+                ListViewItem? expectedFocus = list.Items.Contains(focused) ? focused : list.SelectedItems.Cast<ListViewItem>().SingleOrDefault();
+                Check(list.FocusedItem == expectedFocus, scenario + "后焦点应跟随原行或其删除后的接替行。");
+            });
+        });
+        Check(saved.Points.SequenceEqual(order.Select(id => points[id - 1])), scenario + "回存后坐标或顺序错误。");
+    }
+
+    // 2026/11/23 修改：布局与列表操作回归共用无顶层窗口的控件宿主，退出保存前归还真实布局。
+    private static void WithPositionLayout(MainForm form, Action check)
+    {
+        Control layout = form.Controls[0];
+        using var host = new Panel { Size = form.ClientSize, Font = form.Font };
+        host.Controls.Add(layout);
+        try
+        {
+            host.CreateControl();
+            check();
+        }
+        finally
+        {
+            form.Controls.Add(layout);
+        }
     }
 
     // 2026/11/23 新增：比较控件实际矩形，捕获按钮因换行、重叠或行顺序错误导致的位置偏差。

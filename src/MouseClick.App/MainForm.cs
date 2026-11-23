@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.9
+// 版本：v1.10
 // 日期：2026/11/23
 // 历史：
+// v1.10 2026/11/23 支持批量移动和移除坐标，删除后自动选中相邻行。
 // v1.9 2026/11/23 按位置模式排列坐标输入、屏幕选点和列表操作。
 // v1.8 2026/11/23 区分运行状态图标与标题，停止后恢复窗口，并支持选择 F8 启停。
-// v1.7 2026/11/16 启动成功后先隐藏到托盘，托盘启动或运行失败时显示错误。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -234,6 +234,10 @@ public sealed class MainForm : Form
         _add.Name = "AddPointButton";
         _add.Margin = new Padding(0, 0, 8, 6);
         _capture.Name = "CaptureButton";
+        // 2026/11/23 新增：为列表操作提供稳定的控件名称，供界面验收定位按钮。
+        _up.Name = "MovePointUpButton";
+        _down.Name = "MovePointDownButton";
+        _remove.Name = "RemovePointButton";
         var actions = Ui.Row(_xLabel, _x, _yLabel, _y, _add, _capture, _up, _down, _remove);
         actions.SetFlowBreak(_add, true);
         table.Controls.Add(actions, 0, 3);
@@ -242,7 +246,8 @@ public sealed class MainForm : Form
         _points.Dock = DockStyle.Fill;
         _points.View = View.Details;
         _points.FullRowSelect = true;
-        _points.MultiSelect = false;
+        // 2026/11/23 修改：使用列表原生的 Ctrl 和 Shift 多选行为。
+        _points.MultiSelect = true;
         _points.HideSelection = false;
         _points.BorderStyle = BorderStyle.FixedSingle;
         _points.Margin = new Padding(0, 12, 0, 8);
@@ -267,13 +272,10 @@ public sealed class MainForm : Form
         _stop.Click += (_, _) => StopRun();
         _capture.Click += (_, _) => CapturePoints();
         _add.Click += (_, _) => AddPoint(new ClickPoint((int)_x.Value, (int)_y.Value));
-        _remove.Click += (_, _) =>
-        {
-            if (_points.SelectedItems.Count > 0) _points.Items.Remove(_points.SelectedItems[0]);
-            RenumberPoints();
-        };
-        _up.Click += (_, _) => MovePoint(-1);
-        _down.Click += (_, _) => MovePoint(1);
+        // 2026/11/23 修改：三个操作按钮统一作用于当前选中的所有坐标。
+        _remove.Click += (_, _) => RemoveSelectedPoints();
+        _up.Click += (_, _) => MoveSelectedPoints(-1);
+        _down.Click += (_, _) => MoveSelectedPoints(1);
         _mode.SelectedIndexChanged += (_, _) => UpdateMode();
         _shortcut.SelectedIndexChanged += (_, _) => { if (!_loading) RegisterHotkeys(); };
         _hotkeys.ToggleRequested += async () => { if (_picker is null) await ToggleAsync(); };
@@ -458,24 +460,60 @@ public sealed class MainForm : Form
         RenumberPoints();
     }
 
-    private void MovePoint(int direction)
+    // 2026/11/23 新增：从后向前移除所选行，第一处空位的后继行接收选择，删到末尾时选前一行。
+    private void RemoveSelectedPoints()
     {
-        if (_points.SelectedIndices.Count == 0) return;
-        var old = _points.SelectedIndices[0];
-        var next = old + direction;
-        if (next < 0 || next >= _points.Items.Count) return;
-        var item = _points.Items[old];
-        _points.Items.RemoveAt(old);
-        _points.Items.Insert(next, item);
-        item.Selected = true;
-        item.EnsureVisible();
-        RenumberPoints();
+        int[] indices = _points.SelectedIndices.Cast<int>().Order().ToArray();
+        if (indices.Length == 0) return;
+
+        _points.BeginUpdate();
+        try
+        {
+            for (int i = indices.Length - 1; i >= 0; i--) _points.Items.RemoveAt(indices[i]);
+            RenumberPoints();
+        }
+        finally { _points.EndUpdate(); }
+
+        _points.Focus();
+        if (_points.Items.Count == 0) return;
+        var next = _points.Items[Math.Min(indices[0], _points.Items.Count - 1)];
+        next.Selected = next.Focused = true;
+        next.EnsureVisible();
+    }
+
+    // 2026/11/23 修改：按移动方向依次与相邻未选行交换，到达边界的选区留在原位。
+    private void MoveSelectedPoints(int direction)
+    {
+        var selected = _points.SelectedItems.Cast<ListViewItem>().OrderBy(item => item.Index).ToArray();
+        if (selected.Length == 0) return;
+        if (direction > 0) Array.Reverse(selected);
+        var focus = _points.FocusedItem is { Selected: true } current ? current : selected[0];
+
+        _points.BeginUpdate();
+        try
+        {
+            foreach (var item in selected)
+            {
+                int next = item.Index + direction;
+                if (next < 0 || next >= _points.Items.Count || _points.Items[next].Selected) continue;
+                _points.Items.Remove(item);
+                _points.Items.Insert(next, item);
+                item.Selected = true;
+            }
+            RenumberPoints();
+        }
+        finally { _points.EndUpdate(); }
+
+        _points.Focus();
+        focus.Focused = true;
+        focus.EnsureVisible();
     }
 
     private void RenumberPoints()
     {
         for (var i = 0; i < _points.Items.Count; i++) _points.Items[i].Text = (i + 1).ToString();
-        _pointHint.Text = $"共 {_points.Items.Count} 个位置  ·  顺序从上到下";
+        // 2026/11/23 修改：在列表下方提示连续和不连续选区的操作方式。
+        _pointHint.Text = $"共 {_points.Items.Count} 个位置  ·  Ctrl 逐个多选，Shift 连续多选";
     }
 
     // 2026/11/23 修改：固定坐标旁直接显示选点按钮，只有循环模式展示添加、排序、列表与数量。

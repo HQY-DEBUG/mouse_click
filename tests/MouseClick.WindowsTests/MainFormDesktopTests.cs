@@ -1,11 +1,11 @@
 // 文件：MainFormDesktopTests.cs
 // 描述：在独立配置和自有目标窗口内验证真实主窗口的全局启动、停止及再次启动。
-// 版本：v1.6
-// 日期：2026/11/16
+// 版本：v1.7
+// 日期：2026/11/23
 // 历史：
+// v1.7 2026/11/23 验证停止后主窗口恢复，并增加桌面测试使用的单独 F8 输入。
 // v1.6 2026/11/16 复用有界按住守卫验证 F6 与 Ctrl+F8，取消时反序抬起全部键。
 // v1.5 2026/11/16 增加 F6 按住诊断，并允许停止清理的最后一对消息不计入完成动作。
-// v1.4 2026/11/16 清理直接请求退出并等待释放，支持自动隐藏后的运行窗体。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -66,12 +66,14 @@ internal static class MainFormDesktopTests
             await Task.Delay(40, token);
             AssertSequence(window, first, targets, 6);
             AssertCounts(counts, 6, 2);
-            Check(startButton.Enabled, "完成运行后开始按钮没有恢复。");
+            // 2026/11/23 修改：限定轮数自然完成也应弹出主窗口，后续测试重新把前台交给自有目标。
+            Check(startButton.Enabled && form.Visible && !form.IsInTray, "完成运行后主窗口或开始按钮没有恢复。");
             Console.WriteLine("通过：真实 MainForm 在其他窗口前台时由 F6 启动，三点两轮收到 12 条正确消息，界面为 6 次动作 / 2 轮。");
 
             // 2026/11/15 新增：持续运行至少四个完整动作后发送真实 Ctrl+F8，测量停止延迟并观察静默期。
             repeat.Value = 0;
             first = window.Messages.Count;
+            await ActivateTargetWindowAsync(window, targets, token);
             DesktopTestKeyboard.SendF6(window.Handle);
             await WaitAsync(() => stopButton.Enabled && window.Messages.Skip(first)
                 .Count(message => message.Phase == MousePhase.Up) >= 4,
@@ -98,6 +100,7 @@ internal static class MainFormDesktopTests
             // 2026/11/15 修改：界面以秒设置五秒启动延时，等待计数归零后用 Ctrl+F8 取消，不能产生点击。
             delay.Value = 5;
             first = window.Messages.Count;
+            await ActivateTargetWindowAsync(window, targets, token);
             DesktopTestKeyboard.SendF6(window.Handle);
             await WaitAsync(() => stopButton.Enabled && counts.Text == CountText(0, 0) &&
                 status.Text.Contains("启动延时 5 s", StringComparison.Ordinal),
@@ -116,6 +119,7 @@ internal static class MainFormDesktopTests
             delay.Value = 0;
             repeat.Value = 1;
             first = window.Messages.Count;
+            await ActivateTargetWindowAsync(window, targets, token);
             DesktopTestKeyboard.SendF6(window.Handle);
             await WaitAsync(() => stopButton.Enabled, "取消后 F6 不能再次启动", token);
             await WaitAsync(() => !stopButton.Enabled && status.Text == "已完成设定轮数。" &&
@@ -237,6 +241,8 @@ internal static class DesktopTestKeyboard
     private static readonly int InputSize = Marshal.SizeOf<NativeInput>();
 
     internal static void SendF6(IntPtr expectedForeground) => Send(expectedForeground, [F6Key]);
+    // 2026/11/23 新增：测试单独 F8 选择，与 Ctrl+F8 分别发送到同一受保护宿主。
+    internal static void SendF8(IntPtr expectedForeground) => Send(expectedForeground, [F8Key]);
     // 2026/11/16 新增：新增入口仅注入单个完整功能键，不改变组合停止键或鼠标输入路径。
     internal static void SendF9(IntPtr expectedForeground) => Send(expectedForeground, [F9Key]);
     internal static void SendF10(IntPtr expectedForeground) => Send(expectedForeground, [F10Key]);
@@ -245,6 +251,10 @@ internal static class DesktopTestKeyboard
     // 2026/11/16 修改：NoHotkeyDesktopTests 对两个启停组合共用100ms按住、前台守卫及反序抬起。
     internal static Task<bool> SendHeldF6Async(IntPtr expectedForeground, CancellationToken token) =>
         SendHeldAsync(expectedForeground, [F6Key], token);
+
+    // 2026/11/23 新增：验证 NOHOTKEYS 前台中可观测的 F8 按住边沿。
+    internal static Task<bool> SendHeldF8Async(IntPtr expectedForeground, CancellationToken token) =>
+        SendHeldAsync(expectedForeground, [F8Key], token);
 
     internal static Task<bool> SendHeldControlF8Async(IntPtr expectedForeground, CancellationToken token) =>
         SendHeldAsync(expectedForeground, [ControlKey, F8Key], token);

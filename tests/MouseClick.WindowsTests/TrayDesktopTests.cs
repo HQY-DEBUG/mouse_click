@@ -1,11 +1,11 @@
 // 文件：TrayDesktopTests.cs
 // 描述：验证托盘热键、三秒间隔取消、启动前隐藏及失败恢复，仅使用假鼠标输出计数。
-// 版本：v1.3
-// 日期：2026/11/16
+// 版本：v1.4
+// 日期：2026/11/23
 // 历史：
+// v1.4 2026/11/23 验证图标和窗口状态随启停切换，扩大到 F8 启停及 Ctrl+F8。
 // v1.3 2026/11/16 新增四点三秒间隔中真实 F6 停止、重启及 Ctrl+F8 取消回归。
 // v1.2 2026/11/16 增加按钮及全部启动热键的首个输出隐藏边界、托盘失败恢复回归。
-// v1.1 2026/11/16 新增多点顺序模式先进入托盘再由 F6 启动、停止及再次启动的回归。
 
 using System.Diagnostics;
 using System.Reflection;
@@ -41,7 +41,7 @@ internal static class TrayDesktopTests
             CloseBehavior = WindowCloseBehavior.MinimizeToTray
         });
         Console.WriteLine("托盘桌面验收独立配置（保留供诊断）：" + settingsPath);
-        Console.WriteLine("本流程显示真实窗口并注入 F6/F9/F10/Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
+        Console.WriteLine("本流程显示真实窗口并注入 F6/F8/F9/F10/Ctrl+F8；全部鼠标动作仅计数，绝不发送鼠标输入。");
 
         using var lifetime = new CancellationTokenSource();
         using var outputLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -227,8 +227,9 @@ internal static class TrayDesktopTests
                 long stoppedCount = output.Count;
                 Check(stoppedCount == previousCount + 1, $"{item.Name} 取消前后只能产生首个假动作。");
                 await Task.Delay(3300, token);
-                Check(output.Count == stoppedCount && !engine.IsRunning && form.IsInTray && !form.Visible,
-                    $"{item.Name} 停止后三点三秒内出现残留假动作、重新运行或意外恢复窗口。");
+                // 2026/11/23 修改：两种停止入口都恢复可见主窗口，静默观察期间保持已停止。
+                Check(output.Count == stoppedCount && !engine.IsRunning && !form.IsInTray && form.Visible,
+                    $"{item.Name} 停止后没有恢复窗口，或三点三秒内仍有假动作。");
                 Console.WriteLine($"通过：四点三秒间隔从托盘 F6 启动后，真实 {item.Name} 在 {stopElapsed.ElapsedMilliseconds} 毫秒内停止；随后 3300 毫秒无新增假动作。");
             }
         }
@@ -258,6 +259,11 @@ internal static class TrayDesktopTests
             "实际主窗体未注册全部热键，不能执行托盘桌面验收。状态：" + status.Text);
         form.Close();
         Check(form.IsInTray && !form.Visible && !form.IsDisposed, "关闭后应隐藏到托盘并保留窗体。");
+        // 2026/11/23 新增：保存空闲图标，检查通知区与任务栏实际绑定的图标及文字。
+        NotifyIcon tray = GetField<NotifyIcon>(form, "_tray");
+        Icon idleIcon = tray.Icon ?? throw new InvalidOperationException("已停止状态缺少托盘图标。");
+        Check(form.Icon == idleIcon && tray.Text == form.Text && tray.Text.EndsWith("已停止", StringComparison.Ordinal),
+            "空闲时窗口和托盘应显示同一图标及已停止说明。");
         Check(output.Count == 0 && !stop.Enabled, "首次进入托盘前不能提前启动或产生假动作。");
 
         host.BringToFront();
@@ -268,18 +274,25 @@ internal static class TrayDesktopTests
         DesktopTestKeyboard.SendF6(host.Handle);
         await WaitAsync(() => stop.Enabled && output.Count >= 4, "先关闭到托盘后，真实 F6 未能启动假鼠标输出", token);
         Check(form.IsInTray && !form.Visible, "托盘 F6 启动不能重新显示主窗口。");
+        Check(tray.Icon is not null && tray.Icon != idleIcon && form.Icon == tray.Icon &&
+            tray.Text == form.Text && tray.Text.EndsWith("连点中", StringComparison.Ordinal),
+            "运行期间窗口与托盘应切换为连点中图标及文字。");
         long firstRunCount = output.Count;
         DesktopTestKeyboard.SendF6(host.Handle);
         await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", "真实 F6 未能停止托盘运行", token);
         long firstStoppedCount = output.Count;
+        Check(!form.IsInTray && form.Visible && tray.Icon == idleIcon && form.Icon == idleIcon &&
+            tray.Text == form.Text && tray.Text.EndsWith("已停止", StringComparison.Ordinal),
+            "F6 停止后应自动显示主窗口并恢复已停止图标和文字。");
         await Task.Delay(250, token);
         Check(output.Count == firstStoppedCount, "F6 停止后静默期不能再产生假动作。");
         Console.WriteLine($"通过：多点主窗体先进入托盘，真实 F6 启动并再次停止，{firstStoppedCount} 个假动作均按三个坐标顺序执行。");
 
+        await ActivateHostAsync(host, token);
         output.PrepareRun();
         DesktopTestKeyboard.SendF6(host.Handle);
         await WaitAsync(() => stop.Enabled && output.Count >= firstStoppedCount + 4,
-            "F6 停止后未能再次启动托盘中的假鼠标输出", token);
+            "主窗口恢复后 F6 未能再次启动假鼠标输出", token);
         Check(form.IsInTray && !form.Visible && output.Count > firstRunCount,
             "F6 再次启动应保持托盘隐藏并产生新动作。");
         Console.WriteLine($"通过：真实 F6 在托盘中可再次启动，累计假动作 {firstStoppedCount} → {output.Count}。");
@@ -287,33 +300,37 @@ internal static class TrayDesktopTests
         await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", "真实 Ctrl+F8 未停止托盘运行", token);
         long stoppedCount = output.Count;
         await Task.Delay(250, token);
-        Check(output.Count == stoppedCount && form.IsInTray && !form.Visible,
-            "Ctrl+F8 停止后必须保持托盘隐藏，且静默期不能再产生假动作。");
+        Check(output.Count == stoppedCount && !form.IsInTray && form.Visible,
+            "Ctrl+F8 停止后应自动显示主窗口，且静默期不能再产生假动作。");
         Console.WriteLine($"通过：真实 Ctrl+F8 停止托盘运行，最终 {stoppedCount} 个假动作，250 毫秒内无新增。");
 
-        // 2026/11/16 新增：分别验证可见窗口的四种启动入口，第一份输出必须发生在隐藏之后。
+        // 2026/11/23 修改：按钮与全部启停键均在首个输出前隐藏，选择 F8 时区分 F8 与 Ctrl+F8。
         await CheckVisibleStartAsync(host, form, output, "开始按钮", () => start.PerformClick(), token);
         ComboBox shortcut = Find<ComboBox>(form, "ShortcutChoice");
-        (int Index, string Name, Action<IntPtr> Send)[] shortcuts =
+        (string Name, Action<IntPtr> Send)[] shortcuts =
         [
-            (0, "F6", DesktopTestKeyboard.SendF6),
-            (1, "F9", DesktopTestKeyboard.SendF9),
-            (2, "F10", DesktopTestKeyboard.SendF10)
+            ("F6", DesktopTestKeyboard.SendF6),
+            ("F8", DesktopTestKeyboard.SendF8),
+            ("F9", DesktopTestKeyboard.SendF9),
+            ("F10", DesktopTestKeyboard.SendF10)
         ];
         foreach (var item in shortcuts)
         {
-            if (shortcut.SelectedIndex != item.Index)
+            if (shortcut.Text != item.Name)
             {
-                shortcut.SelectedIndex = item.Index;
+                shortcut.SelectedItem = item.Name;
                 Check(start.Enabled && status.Text.StartsWith("准备就绪。", StringComparison.Ordinal),
                     $"{item.Name} 热键注册未就绪，不能执行启动验收。状态：{status.Text}");
             }
             await CheckVisibleStartAsync(host, form, output, item.Name, () => item.Send(host.Handle), token);
         }
+        // 2026/11/23 修改：停止后已弹出主窗口，先按已有关闭偏好入托盘再验证错误恢复。
+        form.Close();
         await CheckInvalidSequenceAsync(host, form, output, token);
         stoppedCount = output.Count;
 
         // 2026/11/16 新增：直接触发实际托盘菜单事件，验证恢复、设置取消/保存与明确退出。
+        form.Close();
         MenuItem(form, "显示主窗口").PerformClick();
         await WaitAsync(() => form.Visible && !form.IsInTray, "托盘菜单未恢复主窗体", token);
         Check(!stop.Enabled, "恢复主窗体不能重新启动已停止任务。");
@@ -358,7 +375,8 @@ internal static class TrayDesktopTests
         await WaitAsync(() => !stop.Enabled && status.Text == "已停止。", source + " 启动后 Ctrl+F8 未停止", token);
         long stoppedCount = output.Count;
         await Task.Delay(100, token);
-        Check(output.Count == stoppedCount, source + " 停止后仍产生假输出。");
+        Check(output.Count == stoppedCount && form.Visible && !form.IsInTray,
+            source + " 停止后应自动显示主窗口且没有新增假输出。");
         Console.WriteLine($"通过：可见主窗口由 {source} 启动时先隐藏，首个输出及后续三点顺序正确，Ctrl+F8 可停止。");
     }
 

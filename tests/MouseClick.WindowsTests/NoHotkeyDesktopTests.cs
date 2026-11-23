@@ -1,11 +1,11 @@
 // 文件：NoHotkeyDesktopTests.cs
-// 描述：在自有前台窗口验证 NOHOTKEYS 下 F6、Ctrl+F8 状态回退及普通窗口双通道去重。
-// 版本：v1.2
-// 日期：2026/11/16
+// 描述：在自有前台窗口验证 F6/F8 启停和 Ctrl+F8 停止的原生消息与状态采样。
+// 版本：v1.3
+// 日期：2026/11/23
 // 历史：
+// v1.3 2026/11/23 增加单独 F8 与 Ctrl+F8 在普通和 NOHOTKEYS 前台互斥派发的验收。
 // v1.2 2026/11/16 验证普通 F6 按住仅触发一次，以及 NOHOTKEYS 下 F6 和 Ctrl+F8 独立状态检测。
 // v1.1 2026/11/16 记录派发增量与100ms按住状态，有限观察并恢复后再判断阻断原因。
-// v1.0 2026/11/16 新增就绪三十秒、输入十秒有界的 Raw Input 热键兼容性回归。
 
 using System.ComponentModel;
 using System.Diagnostics;
@@ -33,7 +33,7 @@ internal static class NoHotkeyDesktopTests
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Text = "仅向本测试窗口发送 F6、Ctrl+F8，比较 Raw Input 禁用热键前后。\n就绪最多60秒、输入最多10秒；关闭可取消，不发送鼠标输入。"
+            Text = "仅向本测试窗口发送 F6、F8、Ctrl+F8，比较 Raw Input 禁用热键前后。\n就绪最多60秒、输入最多10秒；关闭可取消，不发送鼠标输入。"
         });
         HotkeyWindow? hotkeys = null;
         IntPtr hook = IntPtr.Zero;
@@ -83,6 +83,22 @@ internal static class NoHotkeyDesktopTests
             var elapsed = Stopwatch.StartNew();
             DesktopTestKeyboard.SendF6(host.Handle);
             ReportPhase($"SendF6 同步返回 {elapsed.Elapsed.TotalMilliseconds:F1}ms");
+        }
+
+        // 2026/11/23 新增：选用 F8 时每次先验当前组合，再断言另一个动作没有被误触发。
+        async Task CheckSharedF8Async(HotkeyWindow activeHotkeys, string mode)
+        {
+            string? error = activeHotkeys.Register((int)Keys.F8);
+            Check(error is null, $"{mode} 同时注册 F8 和 Ctrl+F8 失败：{error}");
+            BeginPhase(mode + " 单独 F8");
+            Check(await DesktopTestKeyboard.SendHeldF8Async(host.Handle, cancellation.Token), "未观察到 F8 按住。");
+            await Task.Delay(100, cancellation.Token);
+            Check(toggles == phaseToggles + 1 && stops == phaseStops, $"{mode} 单独 F8 应只派发一次启停。");
+            BeginPhase(mode + " Ctrl+F8");
+            Check(await DesktopTestKeyboard.SendHeldControlF8Async(host.Handle, cancellation.Token), "未观察到 Ctrl+F8 按住。");
+            await Task.Delay(100, cancellation.Token);
+            Check(stops == phaseStops + 1 && toggles == phaseToggles, $"{mode} Ctrl+F8 应只派发一次停止。");
+            Console.WriteLine($"通过：{mode} 的 F8 只启停一次，Ctrl+F8 只停止一次。");
         }
 
         // 2026/11/16 修改：回调仅累计本测试所需的 F6/F8 事件，始终传递，不改变键盘输入行为。
@@ -192,6 +208,10 @@ internal static class NoHotkeyDesktopTests
                 int heldPhaseStops = stops - phaseStops;
                 ReportPhase($"观察完成，组合 GetAsyncKeyState 高位曾置位={heldStopState}");
 
+                // 2026/11/23 新增：在状态采样路径与恢复后的原生路径分别验证 F8 同键分流。
+                await CheckSharedF8Async(hotkeys, "NOHOTKEYS");
+                Check(hotkeys.Register() is null, "切回 F6 基线注册失败。");
+
                 // 2026/11/16 新增：先恢复进程原始空注册，再验证相同热键恢复；最终断言可暴露生产兼容性缺口。
                 if (!RegisterRawInputDevices([Keyboard(0x0001, IntPtr.Zero)], 1, RawDeviceSize))
                     throw new Win32Exception(Marshal.GetLastPInvokeError(), "恢复 Raw Input 原始空注册失败。");
@@ -212,6 +232,7 @@ internal static class NoHotkeyDesktopTests
                     $"NOHOTKEYS 前台 F6 按住应恰好触发一次，实际 {heldPhaseToggles}，按键状态曾置位={heldStateObserved}。");
                 Check(heldStopState && heldPhaseStops == 1,
                     $"NOHOTKEYS 前台 Ctrl+F8 按住应恰好触发一次停止，实际 {heldPhaseStops}，组合状态曾置位={heldStopState}。");
+                await CheckSharedF8Async(hotkeys, "普通前台");
             }
             // 2026/11/16 修改：失败先保留阶段计数与前台，随后仍由 finally 解除全部注册。
             catch (Exception exception)

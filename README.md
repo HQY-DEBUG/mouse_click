@@ -4,20 +4,20 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 下载
 
-当前版本为 **v1.5.0**。[GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.5.0)
+当前版本为 **v1.5.1**。[GitHub Release](https://github.com/HQY-DEBUG/mouse_click/releases/tag/v1.5.1)
 
 | 发行文件 | 用途 |
 | --- | --- |
-| [YuyuMouseClick-v1.5.0-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.0/YuyuMouseClick-v1.5.0-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
-| [YuyuMouseClick-v1.5.0-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.0/YuyuMouseClick-v1.5.0-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
-| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.0/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
-| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.0/release-manifest.json) | 版本、源码提交及发行产物信息 |
+| [YuyuMouseClick-v1.5.1-win-x64-setup.exe](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.1/YuyuMouseClick-v1.5.1-win-x64-setup.exe) | 安装版，提供开始菜单入口、可选桌面快捷方式及 Windows 卸载入口 |
+| [YuyuMouseClick-v1.5.1-win-x64-portable.zip](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.1/YuyuMouseClick-v1.5.1-win-x64-portable.zip) | 便携版，解压到可写目录后直接运行 |
+| [SHA256SUMS.txt](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.1/SHA256SUMS.txt) | 下载文件的 SHA-256 校验值 |
+| [release-manifest.json](https://github.com/HQY-DEBUG/mouse_click/releases/download/v1.5.1/release-manifest.json) | 版本、源码提交及发行产物信息 |
 
-发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示，请核对下载来源及校验值。[v1.5.0 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/docs/releases/v1.5.0.md) · [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/CHANGELOG.md)
+发行包尚未数字签名。Windows 可能显示未知发布者或 SmartScreen 提示，请核对下载来源及校验值。[v1.5.1 发布说明](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/docs/releases/v1.5.1.md) · [版本记录](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/CHANGELOG.md)
 
-主界面采用石墨深色与蓝紫高亮。左侧设置点击参数，右侧编辑坐标或查看屏幕示意图，底部显示本次运行结果。
+主界面采用石墨深色与蓝紫高亮。左侧设置点击参数，右侧编辑坐标或查看屏幕示意图，底部显示本次运行结果。数值框右侧的上下箭头可逐步调节时间、轮数和坐标。
 
-![深色主窗口中选中两个坐标](https://raw.githubusercontent.com/HQY-DEBUG/mouse_click/v1.5.0/docs/releases/images/workspace-v1.5.0.png)
+![v1.5.0 深色主窗口中选中两个坐标](https://raw.githubusercontent.com/HQY-DEBUG/mouse_click/v1.5.0/docs/releases/images/workspace-v1.5.0.png)
 
 若要在本机使用照片背景，可将 JPEG 文件放到 `%LOCALAPPDATA%\HQY.MouseClick\background.jpg`，重新打开程序后生效。同一 Windows 用户的安装版和便携版共用该背景文件。
 
@@ -38,7 +38,7 @@ Windows 中文鼠标连点软件，使用 C# / .NET 10 / Windows Forms。支持 
 
 ## 使用
 
-安装版运行 `YuyuMouseClick-v1.5.0-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
+安装版运行 `YuyuMouseClick-v1.5.1-win-x64-setup.exe`，按中文向导完成安装，再从开始菜单启动。默认仅安装到当前用户的 `%LOCALAPPDATA%\Programs\YuyuMouseClick`。
 
 两个版本的主程序启动时都默认请求管理员权限。若 Windows 显示用户账户控制提示，确认后即可启动。
 
@@ -92,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.5.0/`。同版本输出目录已存在时，可用 `-OutputRoot` 指定其他输出根目录。发行成品可从上方 Release 入口下载。[发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/docs/releasing.md)
+源码分为 `src/MouseClick.Core` 与 `src/MouseClick.App`，行为测试位于 `tests`，Windows 安装脚本位于 `packaging/windows`，产物统一放在被 Git 忽略的 `artifacts`。正式发行输出到 `artifacts/releases/v1.5.1/`。同版本输出目录已存在时，可用 `-OutputRoot` 指定其他输出根目录。发行成品可从上方 Release 入口下载。[发行维护指南](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/docs/releasing.md)
 
 v1.4.0 记录了托盘状态、停止后弹出主窗口、F8 启停和管理员启动方式，v1.3.2 记录了四窗口点击和输入兼容性的测试结果。[v1.4.0 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.4.0.md) · [v1.3.2 验证记录](https://github.com/HQY-DEBUG/mouse_click/blob/main/docs/releases/validation-v1.3.2.md)
 
@@ -100,6 +100,6 @@ v1.4.0 记录了托盘状态、停止后弹出主窗口、F8 启停和管理员�
 
 ## 开发记录
 
-程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/assets/icons/SOURCE.md)。
+程序图标使用选定的蓝紫双色指针：[SVG Repo 原图（CC0）](https://www.svgrepo.com/svg/184232/clicker-mouse-clicker)。原始 SVG、许可和转换记录保存在 [assets/icons](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/assets/icons/SOURCE.md)。
 
-按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.0/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。
+按小阶段验证、commit 并 push。详见 [设计](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/docs/superpowers/specs/2026-11-15-mouse-click-design.md)、[实现计划](https://github.com/HQY-DEBUG/mouse_click/blob/v1.5.1/docs/superpowers/plans/2026-11-15-mouse-click.md) 和 Git 提交历史。

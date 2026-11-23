@@ -1,8 +1,9 @@
 // 文件：WorkspaceHeader.cs
 // 描述：绘制主窗口的品牌栏、应用指针与轨迹背景。
-// 版本：v1.0
+// 版本：v1.1
 // 日期：2026/11/23
-// 历史：v1.0 2026/11/23 新增适配窗口宽度、DPI 与高对比模式的品牌栏。
+// 历史：v1.1 2026/11/23 使用本机照片时让标题区透出工作区背景。
+// v1.0 2026/11/23 新增适配窗口宽度、DPI 与高对比模式的品牌栏。
 
 using System.Drawing.Drawing2D;
 
@@ -12,12 +13,16 @@ namespace MouseClick.App;
 internal sealed class WorkspaceHeader : Panel
 {
     private readonly Icon _logo;
+    private readonly bool _usesPhoto;
 
-    internal WorkspaceHeader(Icon logo)
+    // 2026/11/23 修改：MainForm 提供本次是否有照片，普通主题保留原品牌栏。
+    internal WorkspaceHeader(Icon logo, bool usesPhoto)
     {
         _logo = logo;
+        _usesPhoto = usesPhoto;
         DoubleBuffered = true;
-        BackColor = SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(35, 35, 43);
+        BackColor = usesPhoto ? Color.Transparent :
+            SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(35, 35, 43);
     }
 
     // 2026/11/23 新增：用逻辑像素绘制圆角标题区，窄窗口下让轨迹留在标题右侧。
@@ -25,6 +30,7 @@ internal sealed class WorkspaceHeader : Panel
     {
         var g = e.Graphics;
         if (ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+        if (_usesPhoto) base.OnPaintBackground(e);
         var state = g.Save();
         try
         {
@@ -34,16 +40,19 @@ internal sealed class WorkspaceHeader : Panel
             float height = ClientSize.Height / scale;
             var bounds = new RectangleF(0, 0, width, height);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Parent?.BackColor ?? Ui.Background);
             using var shape = new GraphicsPath();
             shape.AddRoundedRectangle(bounds, new SizeF(14, 14));
             bool contrast = SystemInformation.HighContrast;
-            Color first = contrast ? SystemColors.Window : Color.FromArgb(34, 34, 43);
-            Color last = contrast ? SystemColors.Window : Color.FromArgb(57, 48, 86);
-            using var fill = new LinearGradientBrush(bounds, first, last, 0f);
-            g.FillPath(fill, shape);
+            if (!_usesPhoto || contrast)
+            {
+                g.Clear(Parent?.BackColor ?? Ui.Background);
+                Color first = contrast ? SystemColors.Window : Color.FromArgb(34, 34, 43);
+                Color last = contrast ? SystemColors.Window : Color.FromArgb(57, 48, 86);
+                using var fill = new LinearGradientBrush(bounds, first, last, 0f);
+                g.FillPath(fill, shape);
+            }
             g.SetClip(shape, CombineMode.Intersect);
-            if (!contrast && width > 620)
+            if (!_usesPhoto && !contrast && width > 620)
             {
                 // 2026/11/23 新增：以淡色折线和点位呼应软件的多位置循环功能。
                 float x = width - 310;

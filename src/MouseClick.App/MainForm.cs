@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.12
+// 版本：v1.13
 // 日期：2026/11/23
 // 历史：
+// v1.13 2026/11/23 从当前 Windows 用户的本地目录加载主窗口背景。
 // v1.12 2026/11/23 重排点击参数、位置编辑和运行区，接入蓝紫界面及屏幕位置预览。
 // v1.11 2026/11/23 移动选区时保留原生列表的 Shift 连选起点。
-// v1.10 2026/11/23 支持批量移动和移除坐标，删除后自动选中相邻行。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -17,6 +17,8 @@ public sealed class MainForm : Form
     private const string ProductTitle = "钰宇鼠标连点器";
     private readonly Icon _idleIcon;
     private readonly Icon _runningIcon;
+    // 2026/11/23 新增：照片属于本机 Windows 用户，不进入配置序列化或便携数据。
+    private readonly Image? _photo;
     private bool _restoreAfterRun;
     private readonly ComboBox _button = Ui.Choice("鼠标左键", "鼠标右键", "鼠标中键");
     private readonly ComboBox _kind = Ui.Choice("单击", "双击");
@@ -78,13 +80,14 @@ public sealed class MainForm : Form
     // 2026/11/15 修改：正常启动按程序目录便携标记选择配置位置；调用方 Program 无需变更。
     public MainForm() : this(new SettingsStore(SettingsStore.GetDefaultPath(AppContext.BaseDirectory,
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))),
-        new WindowsClickOutput())
+        new WindowsClickOutput(), backgroundPath: Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HQY.MouseClick", "background.jpg"))
     {
     }
 
-    // 2026/11/16 修改：WindowsTests 可注入关闭选择并禁用真实托盘；Program 默认保持完整桌面行为。
+    // 2026/11/23 修改：Program 使用用户本机照片；WindowsTests 可传独立图片路径，默认使用纯色工作区。
     internal MainForm(SettingsStore store, IClickOutput output,
-        Func<CloseChoice?>? promptForClose = null, bool enableTrayIcon = true)
+        Func<CloseChoice?>? promptForClose = null, bool enableTrayIcon = true, string? backgroundPath = null)
     {
         _store = store;
         _engine = new ClickEngine(output);
@@ -93,11 +96,12 @@ public sealed class MainForm : Form
         // 2026/11/23 修改：每个窗体只加载一次两种图标，在托盘图标和原生窗口都释放后处置副本。
         _idleIcon = LoadIcon("MouseClick.AppIcon.ico");
         _runningIcon = LoadIcon("MouseClick.RunningIcon.ico");
-        Disposed += (_, _) => { _idleIcon.Dispose(); _runningIcon.Dispose(); };
+        _photo = WorkspacePhoto.Load(backgroundPath);
+        Disposed += (_, _) => { _idleIcon.Dispose(); _runningIcon.Dispose(); _photo?.Dispose(); };
         Name = "MouseClickMainForm";
         StartPosition = FormStartPosition.CenterScreen;
         // 2026/11/23 修改：减少窗口默认高度，紧凑尺寸仍保留完整设置和坐标操作行。
-        ClientSize = new Size(976, 664);
+        ClientSize = new Size(976, _photo is null ? 664 : 738);
         MinimumSize = new Size(870, 672);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10);
@@ -129,13 +133,18 @@ public sealed class MainForm : Form
     // 2026/11/23 修改：顶部显示应用与运行状态，中部两栏编辑，底部保留统计、消息和启停入口。
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(18) };
+        // 2026/11/23 修改：本地照片作为整个工作区背景，标题区域留出构图空间。
+        TableLayoutPanel root = _photo is null ? new TableLayoutPanel() : new PhotoWorkspace(_photo);
+        root.Dock = DockStyle.Fill;
+        root.ColumnCount = 1;
+        root.RowCount = 3;
+        root.Padding = new Padding(18);
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 91));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, _photo is null ? 91 : 165));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
         Controls.Add(root);
-        var header = new WorkspaceHeader(_idleIcon) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 12) };
+        var header = new WorkspaceHeader(_idleIcon, _photo is not null) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 12) };
         var brand = new TableLayoutPanel
         {
             Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, BackColor = Color.Transparent,

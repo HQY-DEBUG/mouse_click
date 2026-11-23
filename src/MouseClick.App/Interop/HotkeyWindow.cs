@@ -1,16 +1,17 @@
 // 文件：HotkeyWindow.cs
 // 描述：注册全局启停、紧急停止和取点快捷键，并以按键状态补充被前台禁用的启停消息。
-// 版本：v1.4
-// 日期：2026/11/16
+// 版本：v1.5
+// 日期：2026/11/23
 // 历史：
+// v1.5 2026/11/23 支持单独 F8 启停，与 Ctrl+F8 按修饰键分流并共用按下边沿。
 // v1.4 2026/11/16 将去重时间戳放在状态读取之后，避免读取期间新按下被重复派发。
 // v1.3 2026/11/16 增加启停键状态采样及双通道去重，保留注册冲突和取点行为。
-// v1.2 2026/11/15 固定 Ctrl+F8 紧急停止，移除自动换键并拒绝旧组合消息。
 
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using MouseClick.Core;
 
 namespace MouseClick.App.Interop;
 
@@ -67,12 +68,13 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
                 string.Join(Environment.NewLine, failures);
         }
 
-        if (toggleVirtualKey is not (0x75 or 0x78 or 0x79))
+        // 2026/11/23 修改：与配置校验共用列表，分别向系统注册 F8 与 Ctrl+F8。
+        if (!ClickSettings.ToggleVirtualKeys.Contains(toggleVirtualKey))
         {
-            return "开始/停止快捷键仅支持 F6、F9 或 F10。";
+            return "开始/停止快捷键仅支持 F6、F8、F9 或 F10。";
         }
 
-        string toggleName = toggleVirtualKey switch { 0x75 => "F6", 0x78 => "F9", _ => "F10" };
+        string toggleName = ((Keys)toggleVirtualKey).ToString();
         _toggleVirtualKey = toggleVirtualKey;
         CanStop = TryRegister(StopId, 0x77, "Ctrl+F8（紧急停止）", failures, StopModifiers);
         CanCapture = TryRegister(CaptureId, 0x76, "F7（获取鼠标位置）", failures);
@@ -116,7 +118,9 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
             switch (message.WParam.ToInt32())
             {
                 case ToggleId when CanToggle && virtualKey == _toggleVirtualKey && modifiers == 0:
-                    if (_toggleGate.Native(unchecked((uint)GetMessageTime()), IsKeyDown(_toggleVirtualKey)))
+                    // 2026/11/23 修改：F8 的原生消息和采样共用同一个门，按住时松开 Ctrl 不会再次切换。
+                    HotkeyPressGate gate = virtualKey == (int)Keys.F8 ? _stopGate : _toggleGate;
+                    if (gate.Native(unchecked((uint)GetMessageTime()), IsKeyDown(virtualKey)))
                         ToggleRequested?.Invoke();
                     return;
                 case StopId when CanStop && virtualKey == 0x77 && modifiers == StopModifiers:
@@ -139,12 +143,16 @@ public sealed class HotkeyWindow : NativeWindow, IDisposable
         uint modifiers = (IsKeyDown(0x12) ? 1u : 0u) | (IsKeyDown(0x11) ? 2u : 0u)
             | (IsKeyDown(0x10) ? 4u : 0u) | (IsKeyDown(0x5B) || IsKeyDown(0x5C) ? 8u : 0u);
         // 2026/11/16 修改：先读取状态再记采样时间，避免读取期间新按下的原生消息比采样时间更新而重复派发。
-        bool toggleDown = IsKeyDown(_toggleVirtualKey);
-        bool stopDown = IsKeyDown(0x77);
+        // 2026/11/23 修改：配置为 F8 时只读取一次功能键并共享按下边沿，随后按修饰键分派。
+        bool sharedF8 = _toggleVirtualKey == (int)Keys.F8;
+        bool stopDown = IsKeyDown((int)Keys.F8);
+        bool toggleDown = sharedF8 ? stopDown : IsKeyDown(_toggleVirtualKey);
         uint timestamp = unchecked((uint)Environment.TickCount);
-        bool toggle = _toggleGate.Sample(toggleDown, CanToggle && modifiers == 0, timestamp);
-        bool stop = _stopGate.Sample(stopDown, CanStop && modifiers == StopModifiers, timestamp);
-        if (stop) StopRequested?.Invoke();
+        bool toggleChord = CanToggle && modifiers == 0;
+        bool stopChord = CanStop && modifiers == StopModifiers;
+        bool f8Pressed = _stopGate.Sample(stopDown, stopChord || (sharedF8 && toggleChord), timestamp);
+        bool toggle = sharedF8 ? f8Pressed && toggleChord : _toggleGate.Sample(toggleDown, toggleChord, timestamp);
+        if (f8Pressed && stopChord) StopRequested?.Invoke();
         if (toggle) ToggleRequested?.Invoke();
     }
 

@@ -1,11 +1,11 @@
 // 文件：MainForm.cs
 // 描述：中文连点器主窗口、坐标列表及运行生命周期。
-// 版本：v1.11
+// 版本：v1.12
 // 日期：2026/11/23
 // 历史：
+// v1.12 2026/11/23 重排点击参数、位置编辑和运行区，接入蓝紫界面及屏幕位置预览。
 // v1.11 2026/11/23 移动选区时保留原生列表的 Shift 连选起点。
 // v1.10 2026/11/23 支持批量移动和移除坐标，删除后自动选中相邻行。
-// v1.9 2026/11/23 按位置模式排列坐标输入、屏幕选点和列表操作。
 using MouseClick.App.Interop;
 using MouseClick.Core;
 
@@ -30,26 +30,27 @@ public sealed class MainForm : Form
     private readonly NumericUpDown _repeat = Ui.Number(0, 1000000, 0, "RepeatInput");
     private readonly NumericUpDown _x = Ui.Number(int.MinValue, int.MaxValue, 0, "XInput");
     private readonly NumericUpDown _y = Ui.Number(int.MinValue, int.MaxValue, 0, "YInput");
-    private readonly ListView _points = new();
-    private readonly Label _status = Ui.Text("准备就绪，设置完成后按 F6 开始。");
-    private readonly Label _counts = Ui.Text("0 次动作  /  0 轮", 17, true);
+    // 2026/11/23 修改：循环列表与屏幕预览在同一位置切换。
+    private readonly PointListView _points = new();
+    private readonly PositionPreview _preview = new();
+    private readonly Label _headerState = Ui.Text("已停止", 9);
+    private readonly Label _status = Ui.Text("准备就绪。");
+    private readonly Label _counts = Ui.Text("0 次动作  /  0 轮", 15, true);
     private readonly Label _pointHint = Ui.Text("");
     private readonly Label _modeHint = Ui.Text("");
     // 2026/11/23 新增：坐标标签和多点说明随所选位置模式一起显隐。
     private readonly Label _xLabel = Ui.Text("X");
     private readonly Label _yLabel = Ui.Text("Y");
-    private readonly Label _sequenceHint = Ui.Text("支持负坐标。屏幕点选时，按右键或 Esc 完成。", 9);
-    // 2026/11/15 修改：界面初始提示和停止按钮统一显示固定 Ctrl+F8。
-    private readonly Label _emergencyHint = Ui.Text("Ctrl+F8 紧急停止  ·  0 轮表示持续点击  ·  多位置全部走完计一轮", 9);
-    private readonly Button _start = Ui.Button("开始连点 · F6", true);
-    private readonly Button _stop = Ui.Button("停止 · Ctrl+F8");
-    private readonly Button _capture = Ui.Button("屏幕点选 · F7", true);
-    private readonly Button _add = Ui.Button("添加坐标");
-    private readonly Button _remove = Ui.Button("移除");
-    private readonly Button _up = Ui.Button("上移");
-    private readonly Button _down = Ui.Button("下移");
-    private readonly Panel _settingsPanel = new();
-    private readonly Panel _positionsPanel = new();
+    // 2026/11/23 修改：实心主按钮用于启动和停止切换，位置编辑按钮沿用文字及快捷键。
+    private readonly ActionButton _start = Ui.Button("开始连点 · F6", true, UiIcon.Start);
+    private readonly Button _stop = Ui.Button("停止 · Ctrl+F8", icon: UiIcon.Stop);
+    private readonly Button _capture = Ui.Button("屏幕点选 · F7", icon: UiIcon.Pick);
+    private readonly Button _add = Ui.Button("添加坐标", icon: UiIcon.Add);
+    private readonly Button _remove = Ui.Button("移除", icon: UiIcon.Remove);
+    private readonly Button _up = Ui.Button("上移", icon: UiIcon.Up);
+    private readonly Button _down = Ui.Button("下移", icon: UiIcon.Down);
+    private readonly Panel _settingsPanel = Ui.Card();
+    private readonly Panel _positionsPanel = Ui.Card();
     private readonly ClickEngine _engine;
     private readonly HotkeyWindow _hotkeys = new();
     private readonly SettingsStore _store;
@@ -61,7 +62,7 @@ public sealed class MainForm : Form
     private string? _loadWarning;
 
     // 2026/11/16 新增：托盘生命周期独立于窗口可见性，测试可关闭真实图标并注入选择。
-    private readonly Button _preferences = Ui.Button("设置");
+    private readonly Button _preferences = Ui.Button("设置", icon: UiIcon.Settings);
     private readonly NotifyIcon _tray = new();
     private readonly ContextMenuStrip _trayMenu = new();
     private readonly ToolStripMenuItem _trayToggle = new("开始连点");
@@ -95,8 +96,9 @@ public sealed class MainForm : Form
         Disposed += (_, _) => { _idleIcon.Dispose(); _runningIcon.Dispose(); };
         Name = "MouseClickMainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(960, 760);
-        MinimumSize = new Size(880, 760);
+        // 2026/11/23 修改：减少窗口默认高度，紧凑尺寸仍保留完整设置和坐标操作行。
+        ClientSize = new Size(976, 664);
+        MinimumSize = new Size(870, 672);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10);
         BackColor = Ui.Background;
@@ -124,108 +126,164 @@ public sealed class MainForm : Form
         return (Icon)icon.Clone();
     }
 
-    // 2026/11/15 新增：两栏设置与坐标列表布局，底部始终保留停止操作。
+    // 2026/11/23 修改：顶部显示应用与运行状态，中部两栏编辑，底部保留统计、消息和启停入口。
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(24, 14, 24, 18) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(18) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 91));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
         Controls.Add(root);
-        // 2026/11/16 修改：设置入口置于标题区，运行时仍可调整关闭偏好。
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        // 2026/11/15 修改：界面大标题与窗口标题统一使用钰宇鼠标连点器。
-        header.Controls.Add(Ui.Text("钰宇鼠标连点器", 25, true), 0, 0);
+        var header = new WorkspaceHeader(_idleIcon) { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 12) };
+        var brand = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, BackColor = Color.Transparent,
+            Padding = new Padding(80, 9, 17, 9), Margin = Padding.Empty
+        };
+        brand.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        brand.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        brand.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+        brand.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+        var title = Ui.Text(ProductTitle, 19, true);
+        title.ForeColor = SystemInformation.HighContrast ? SystemColors.WindowText : Color.White;
+        title.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        title.Margin = Padding.Empty;
+        title.BackColor = _headerState.BackColor = Color.Transparent;
+        _headerState.Name = "HeaderRunState";
+        _headerState.Anchor = AnchorStyles.Left;
+        _headerState.Margin = Padding.Empty;
+        brand.Controls.Add(title, 0, 0);
+        brand.Controls.Add(_headerState, 0, 1);
         _preferences.Name = "PreferencesButton";
-        header.Controls.Add(_preferences, 1, 0);
-        var subtitle = Ui.Text("设置节奏，点选位置，让重复点击自动完成。", 10);
-        subtitle.ForeColor = Ui.Muted;
-        header.Controls.Add(subtitle, 0, 1);
+        _preferences.Anchor = AnchorStyles.Right;
+        _preferences.Margin = Padding.Empty;
+        brand.Controls.Add(_preferences, 1, 0);
+        brand.SetRowSpan(_preferences, 2);
+        header.Controls.Add(brand);
         root.Controls.Add(header, 0, 0);
 
         var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
+        body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.Controls.Add(body, 0, 1);
-        _settingsPanel.Dock = DockStyle.Fill;
-        _settingsPanel.BackColor = Color.White;
-        _settingsPanel.Padding = new Padding(20, 12, 20, 12);
+        _settingsPanel.Dock = _positionsPanel.Dock = DockStyle.Fill;
+        _settingsPanel.Padding = _positionsPanel.Padding = new Padding(17, 14, 17, 13);
         _settingsPanel.Margin = new Padding(0, 0, 12, 0);
         _settingsPanel.AutoScroll = true;
-        _positionsPanel.Dock = DockStyle.Fill;
-        _positionsPanel.BackColor = Color.White;
-        _positionsPanel.Padding = new Padding(20, 12, 20, 12);
         _positionsPanel.Margin = Padding.Empty;
         body.Controls.Add(_settingsPanel, 0, 0);
         body.Controls.Add(_positionsPanel, 1, 0);
         BuildSettings();
         BuildPositions();
 
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(0, 14, 0, 0) };
+        var console = Ui.Card();
+        console.Dock = DockStyle.Fill;
+        console.Margin = new Padding(0, 12, 0, 0);
+        console.Padding = new Padding(17, 9, 17, 8);
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        footer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _counts.Name = "RunCounts";
+        _counts.Anchor = AnchorStyles.Left;
+        _counts.Margin = Padding.Empty;
         footer.Controls.Add(_counts, 0, 0);
         _start.Name = "StartButton";
         _stop.Name = "StopButton";
         _stop.ForeColor = Ui.Danger;
         _stop.Enabled = false;
-        footer.Controls.Add(Ui.Row(_start, _stop), 1, 0);
+        var commands = Ui.Row(_stop, _start);
+        commands.Dock = DockStyle.None;
+        commands.Anchor = AnchorStyles.Right;
+        commands.WrapContents = false;
+        _start.Margin = Padding.Empty;
+        footer.Controls.Add(commands, 1, 0);
         _status.AutoSize = false;
         _status.Dock = DockStyle.Fill;
+        _status.Margin = new Padding(0, 5, 0, 0);
         _status.Name = "RunStatus";
         footer.Controls.Add(_status, 0, 1);
         footer.SetColumnSpan(_status, 2);
-        _emergencyHint.ForeColor = Ui.Muted;
-        footer.Controls.Add(_emergencyHint, 0, 2);
-        footer.SetColumnSpan(_emergencyHint, 2);
-        root.Controls.Add(footer, 0, 2);
+        console.Controls.Add(footer);
+        root.Controls.Add(console, 0, 2);
+        // 2026/11/23 新增：热键冲突可能有多行说明，按当前宽度给运行区留足阅读空间。
+        void FitStatus(object? sender, EventArgs args)
+        {
+            if (footer.ClientSize.Width <= 0) return;
+            int messageHeight = TextRenderer.MeasureText(_status.Text, _status.Font,
+                new Size(footer.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak).Height;
+            int required = console.Margin.Vertical + console.Padding.Vertical + commands.PreferredSize.Height
+                + _status.Margin.Vertical + messageHeight + LogicalToDeviceUnits(3);
+            int height = Math.Max(LogicalToDeviceUnits(98), required);
+            if ((int)root.RowStyles[2].Height != height) root.RowStyles[2].Height = height;
+        }
+        _status.TextChanged += FitStatus;
+        footer.SizeChanged += FitStatus;
     }
 
-    // 2026/11/15 修改：时间标签及可访问名称统一标注 s，轮数仍为整数。
+    // 2026/11/23 修改：将按键与方式、间隔与延时成对排列，轮数与快捷键保留独立的整行输入。
     private void BuildSettings()
     {
-        var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
-        table.Controls.Add(Ui.Text("01  点击设置", 13, true));
-        void Field(string caption, Control control, string name)
+        var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 10, Margin = Padding.Empty };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (int row = 0; row < table.RowCount; row++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var heading = Ui.Text("点击参数", 14, true);
+        heading.Margin = new Padding(0, 0, 0, 15);
+        table.Controls.Add(heading, 0, 0);
+        table.SetColumnSpan(heading, 2);
+        void Field(string caption, Control control, string name, int column, int row, bool wide = false)
         {
-            table.Controls.Add(Ui.Text(caption, 9));
+            var label = Ui.Text(caption, 9);
+            label.ForeColor = Ui.Muted;
+            label.Margin = new Padding(0, 0, 0, 5);
+            table.Controls.Add(label, column, row);
             control.Name = name;
             control.AccessibleName = caption;
-            control.Margin = new Padding(0, 0, 0, 6);
-            table.Controls.Add(control);
+            control.Margin = new Padding(0, 0, !wide && column == 0 ? 10 : 0, 13);
+            table.Controls.Add(control, column, row + 1);
+            if (wide) { table.SetColumnSpan(label, 2); table.SetColumnSpan(control, 2); }
         }
-        Field("鼠标按键", _button, "ButtonChoice");
-        Field("点击方式", _kind, "KindChoice");
-        Field("点击间隔（s）", _interval, "IntervalInput");
-        Field("启动延时（s）", _delay, "DelayInput");
-        Field("重复轮数（0 = 持续）", _repeat, "RepeatInput");
-        Field("全局开始 / 停止快捷键", _shortcut, "ShortcutChoice");
+        Field("鼠标按键", _button, "ButtonChoice", 0, 1);
+        Field("点击方式", _kind, "KindChoice", 1, 1);
+        Field("点击间隔（s）", _interval, "IntervalInput", 0, 3);
+        Field("启动延时（s）", _delay, "DelayInput", 1, 3);
+        Field("重复轮数（0 = 持续）", _repeat, "RepeatInput", 0, 5, true);
+        Field("全局开始 / 停止快捷键", _shortcut, "ShortcutChoice", 0, 7, true);
+        var emergency = Ui.Text("Ctrl+F8  紧急停止", 9, true);
+        emergency.ForeColor = Ui.Accent;
+        emergency.BackColor = Ui.AccentSoft;
+        emergency.Margin = new Padding(0, 2, 0, 0);
+        emergency.Padding = new Padding(9, 5, 9, 5);
+        table.Controls.Add(emergency, 0, 9);
+        table.SetColumnSpan(emergency, 2);
         _settingsPanel.Controls.Add(table);
     }
 
-    // 2026/11/23 修改：坐标输入和对应操作放在列表上方，多点模式的点选与排序另起一行。
+    // 2026/11/23 修改：屏幕预览与坐标列表共享主显示区，模式选择和对应的编辑工具保留在上方。
     private void BuildPositions()
     {
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
-        for (var i = 0; i < table.RowCount; i++) table.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
-        table.Controls.Add(Ui.Text("02  点击位置", 13, true), 0, 0);
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Margin = Padding.Empty };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int i = 0; i < table.RowCount; i++) table.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
+        var heading = Ui.Text("点击位置", 14, true);
+        heading.Margin = new Padding(0, 0, 0, 9);
+        table.Controls.Add(heading, 0, 0);
         _mode.Name = "ModeChoice";
         _mode.AccessibleName = "点击位置模式";
         table.Controls.Add(_mode, 0, 1);
         _modeHint.Font = new Font(Font.FontFamily, 9);
         _modeHint.ForeColor = Ui.Muted;
         _modeHint.AutoSize = false;
-        _modeHint.Height = 47;
+        _modeHint.Height = 24;
+        _modeHint.Margin = new Padding(0, 4, 0, 5);
         _modeHint.Dock = DockStyle.Top;
         table.Controls.Add(_modeHint, 0, 2);
         _x.Dock = _y.Dock = DockStyle.None;
-        _x.Width = _y.Width = 104;
+        _x.Width = _y.Width = 96;
         _x.AccessibleName = "X 坐标";
         _y.AccessibleName = "Y 坐标";
         _xLabel.Anchor = _yLabel.Anchor = _x.Anchor = _y.Anchor = AnchorStyles.Left;
@@ -233,6 +291,7 @@ public sealed class MainForm : Form
         _x.Margin = _y.Margin = new Padding(4, 0, 8, 0);
         _add.Name = "AddPointButton";
         _add.Margin = new Padding(0, 0, 8, 6);
+        _capture.ForeColor = Ui.Accent;
         _capture.Name = "CaptureButton";
         // 2026/11/23 新增：为列表操作提供稳定的控件名称，供界面验收定位按钮。
         _up.Name = "MovePointUpButton";
@@ -241,25 +300,19 @@ public sealed class MainForm : Form
         var actions = Ui.Row(_xLabel, _x, _yLabel, _y, _add, _capture, _up, _down, _remove);
         actions.SetFlowBreak(_add, true);
         table.Controls.Add(actions, 0, 3);
+        var display = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 0) };
+        table.Controls.Add(display, 0, 4);
         _points.Name = "PointList";
         _points.AccessibleName = "循环坐标列表";
         _points.Dock = DockStyle.Fill;
-        _points.View = View.Details;
-        _points.FullRowSelect = true;
-        // 2026/11/23 修改：使用列表原生的 Ctrl 和 Shift 多选行为。
-        _points.MultiSelect = true;
-        _points.HideSelection = false;
-        _points.BorderStyle = BorderStyle.FixedSingle;
-        _points.Margin = new Padding(0, 12, 0, 8);
-        _points.Columns.Add("顺序", 72);
-        _points.Columns.Add("X 坐标", 145);
-        _points.Columns.Add("Y 坐标", 145);
-        table.Controls.Add(_points, 0, 4);
+        _preview.Name = "ScreenPositionPreview";
+        _preview.Dock = DockStyle.Fill;
+        display.Controls.Add(_preview);
+        display.Controls.Add(_points);
         _pointHint.ForeColor = Ui.Muted;
         _pointHint.Font = new Font(Font.FontFamily, 9);
+        _pointHint.Margin = new Padding(0, 7, 0, 0);
         table.Controls.Add(_pointHint, 0, 5);
-        _sequenceHint.ForeColor = Ui.Muted;
-        table.Controls.Add(_sequenceHint, 0, 6);
         _positionsPanel.Controls.Add(table);
     }
 
@@ -277,6 +330,9 @@ public sealed class MainForm : Form
         _up.Click += (_, _) => MoveSelectedPoints(-1);
         _down.Click += (_, _) => MoveSelectedPoints(1);
         _mode.SelectedIndexChanged += (_, _) => UpdateMode();
+        // 2026/11/23 新增：只在固定坐标或模式变更时刷新屏幕示意图。
+        _x.ValueChanged += (_, _) => UpdatePositionPreview();
+        _y.ValueChanged += (_, _) => UpdatePositionPreview();
         _shortcut.SelectedIndexChanged += (_, _) => { if (!_loading) RegisterHotkeys(); };
         _hotkeys.ToggleRequested += async () => { if (_picker is null) await ToggleAsync(); };
         _hotkeys.StopRequested += () => { _picker?.Close(); StopRun(); };
@@ -396,6 +452,8 @@ public sealed class MainForm : Form
         _settingsPanel.Enabled = _positionsPanel.Enabled = !running;
         _stop.Enabled = running;
         _start.Text = running ? "停止连点" : "开始连点 · " + _shortcut.Text;
+        // 2026/11/23 新增：按钮图形与当前开始或停止动作同步。
+        _start.Icon = running ? UiIcon.Stop : UiIcon.Start;
         if (running) _refresh.Start(); else _refresh.Stop();
         // 2026/11/16 新增：托盘菜单实时反映同一执行任务的状态。
         UpdateTray();
@@ -410,8 +468,8 @@ public sealed class MainForm : Form
         _start.Text = "开始连点 · " + _shortcut.Text;
         _start.Enabled = _hotkeys.CanStop;
         _stop.Text = "停止 · " + _hotkeys.StopHotkeyText;
-        _emergencyHint.Text = $"{_hotkeys.StopHotkeyText} 紧急停止  ·  0 轮表示持续点击  ·  多位置全部走完计一轮";
-        ShowStatus(error ?? $"准备就绪。{_shortcut.Text} 开始 / 停止，F7 取点，{_hotkeys.StopHotkeyText} 紧急停止。", error is not null);
+        // 2026/11/23 修改：就绪时保持消息简短，注册冲突仍完整显示。
+        ShowStatus(error ?? "准备就绪。", error is not null);
         // 2026/11/16 新增：紧急停止注册失败时托盘入口也禁止启动。
         UpdateTray();
     }
@@ -421,7 +479,7 @@ public sealed class MainForm : Form
         // 2026/11/16 新增：运行取消的异步回调可能晚于系统关闭，不再更新已释放的控件。
         if (IsDisposed) return;
         _status.Text = text;
-        _status.ForeColor = error ? Ui.Danger : Ui.Accent;
+        _status.ForeColor = error ? Ui.Danger : Ui.Muted;
         _status.AccessibleDescription = text;
         // 2026/11/16 新增：托盘中启动或运行失败时显示原因，避免快捷键已响应却看起来毫无反应。
         // 2026/11/23 修改：启动前的错误立即显示，运行期间的错误在清理结束、计数刷新后显示。
@@ -529,16 +587,22 @@ public sealed class MainForm : Form
         bool sequence = mode == TargetMode.Sequence;
         _xLabel.Visible = _x.Visible = _yLabel.Visible = _y.Visible = mode != TargetMode.Cursor;
         _add.Visible = _up.Visible = _down.Visible = _remove.Visible = sequence;
-        _points.Visible = _pointHint.Visible = _sequenceHint.Visible = sequence;
+        _points.Visible = _pointHint.Visible = sequence;
+        _preview.Visible = !sequence;
+        UpdatePositionPreview();
         _capture.Text = mode == TargetMode.Fixed ? "选点 · F7" : "屏幕点选 · F7";
         _modeHint.Text = mode switch
         {
-            TargetMode.Cursor => "点击光标所在位置，运行时可随时移动鼠标。",
-            TargetMode.Fixed => "输入 X 和 Y 坐标（支持负数），或点击“选点”在屏幕上选择位置。",
-            _ => "依次点击列表中的所有位置，走完后从第一个位置继续。"
+            TargetMode.Cursor => "每次点击鼠标当前所在的位置。",
+            TargetMode.Fixed => "输入屏幕坐标，或按 F7 选取固定位置。",
+            _ => "从上到下点击为一轮。屏幕点选时，右键或 Esc 结束。"
         };
         RenumberPoints();
     }
+
+    // 2026/11/23 新增：坐标来自原有输入框，预览仅呈现当前设置。
+    private void UpdatePositionPreview() =>
+        _preview.SetTarget((TargetMode)_mode.SelectedIndex, new ClickPoint((int)_x.Value, (int)_y.Value));
 
     // 2026/11/16 新增：窗口和托盘使用同一套启停入口，托盘显式退出不受记忆偏好影响。
     private void BuildTray()
@@ -597,6 +661,10 @@ public sealed class MainForm : Form
         if (Icon != stateIcon) Icon = stateIcon;
         if (_tray.Icon != stateIcon) _tray.Icon = stateIcon;
         Text = _tray.Text = ProductTitle + (running ? " · 连点中" : " · 已停止");
+        // 2026/11/23 新增：标题栏中的文字状态与托盘状态同时更新。
+        _headerState.Text = running ? "●   正在连点" : "●   已停止";
+        _headerState.ForeColor = SystemInformation.HighContrast ? SystemColors.WindowText :
+            running ? Color.FromArgb(144, 235, 199) : Color.FromArgb(204, 207, 238);
     }
 
     // 2026/11/16 新增：设置可随时改回询问，保存失败回滚内存偏好并明确报告。

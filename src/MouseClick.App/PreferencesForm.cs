@@ -1,8 +1,9 @@
 // 文件：PreferencesForm.cs
 // 描述：编辑点击主窗口关闭按钮时的默认行为。
-// 版本：v1.0
-// 日期：2026/11/16
+// 版本：v1.1
+// 日期：2026/11/23
 // 历史：
+// v1.1 2026/11/23 配合主界面调整深色面板、说明及保存按钮。
 // v1.0 2026/11/16 新增每次询问、最小化到托盘和直接退出设置。
 
 using MouseClick.Core;
@@ -34,7 +35,7 @@ internal sealed class PreferencesForm : Form
         MaximizeBox = MinimizeBox = false;
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Microsoft YaHei UI", 10);
-        BackColor = Ui.Background;
+        BackColor = Ui.Surface;
         ForeColor = Ui.Ink;
         ClientSize = new Size(490, 225);
 
@@ -48,7 +49,8 @@ internal sealed class PreferencesForm : Form
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int row = 0; row < 4; row++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(Ui.Text("点击主窗口 × 时", 11, true));
+        // 2026/11/23 修改：以关闭动作为标题，短说明紧接设置项。
+        layout.Controls.Add(Ui.Text("关闭主窗口时", 15, true));
         _closeBehavior.Name = "CloseBehaviorChoice";
         _closeBehavior.AccessibleName = "点击主窗口关闭按钮时的行为";
         _closeBehavior.Margin = new Padding(0, 8, 0, 12);
@@ -59,7 +61,7 @@ internal sealed class PreferencesForm : Form
         hint.Margin = new Padding(0, 0, 0, 20);
         layout.Controls.Add(hint);
 
-        var save = Ui.Button("保存", true);
+        var save = Ui.Button("保存", true, UiIcon.Save);
         save.Name = "SavePreferencesButton";
         save.DialogResult = DialogResult.OK;
         save.Click += (_, _) => SelectedCloseBehavior = _closeBehavior.SelectedIndex switch
@@ -71,7 +73,10 @@ internal sealed class PreferencesForm : Form
         var cancel = Ui.Button("取消");
         cancel.Name = "CancelPreferencesButton";
         cancel.DialogResult = DialogResult.Cancel;
-        layout.Controls.Add(Ui.Row(save, cancel));
+        var actions = Ui.Row(save, cancel);
+        actions.FlowDirection = FlowDirection.RightToLeft;
+        save.Margin = Padding.Empty;
+        layout.Controls.Add(actions);
         Controls.Add(layout);
         AcceptButton = save;
         CancelButton = cancel;

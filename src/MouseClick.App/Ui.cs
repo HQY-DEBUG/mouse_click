@@ -104,12 +104,27 @@ internal static class Ui
     }
 
     // 2026/11/23 修改：原生数字编辑区及其输入文字共用深色配色，保留原有步进与范围。
-    internal static NumericUpDown Number(decimal min, decimal max, decimal value, string name) => new()
+    internal static NumericUpDown Number(decimal min, decimal max, decimal value, string name) => new NumberField
     {
         Minimum = min, Maximum = max, Value = value, Name = name,
         ThousandsSeparator = true, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 4),
         BackColor = InputSurface, ForeColor = Ink, BorderStyle = BorderStyle.FixedSingle
     };
+
+    // 2026/11/23 新增：只重绘数字框外边线，聚焦时高亮，文字编辑区和步进按钮仍由 Windows 处理。
+    private sealed class NumberField : NumericUpDown
+    {
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (SystemInformation.HighContrast) return;
+            using var border = new Pen(ContainsFocus ? Accent : Color.FromArgb(105, 105, 123));
+            e.Graphics.DrawRectangle(border, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+        }
+
+        protected override void OnEnter(EventArgs e) { base.OnEnter(e); Invalidate(); }
+        protected override void OnLeave(EventArgs e) { base.OnLeave(e); Invalidate(); }
+    }
 
     // 2026/11/15 新增：时间输入统一为秒，归一小数精度，确保显示值与执行时长一致。
     internal static NumericUpDown Seconds(decimal min, decimal max, decimal value, string name)
